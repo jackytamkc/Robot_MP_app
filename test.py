@@ -315,7 +315,7 @@ def single_plex_app():
 
             # Determine final diluent
             if rtype == "Custom":
-                diluent = cust_diluent  # user-specified
+                diluent = custom_diluent  # user-specified
             else:
                 diluent = choose_diluent(rtype)
 
