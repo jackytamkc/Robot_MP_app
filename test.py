@@ -6,19 +6,13 @@ from collections import defaultdict
 # Utility for volumes
 ###############################################################################
 
-def calc_total_volume(dispense_vol, dead_vol, double_disp):
-    """
-    Simple formula:
-      total_volume = dead_vol + (dispense_vol * (2 if double_disp else 1))
-    """
-    factor = 2 if double_disp else 1
-    return dead_vol + (dispense_vol * factor)
+def calc_dispense_portion(dispense_vol: float, double_disp: bool) -> float:
+    """Return the portion for a single usage: (dispense_vol * 2 if double_disp else 1)."""
+    return dispense_vol * (2 if double_disp else 1)
 
 
-def check_warn(volume):
-    """
-    Return warning if volume > 5000 or > 6000
-    """
+def check_volume_warning(volume: float) -> str:
+    """Return a warning string if volume >5000 or >6000."""
     if volume > 6000:
         return "EXCEEDS 6000 µL limit!"
     elif volume > 5000:
@@ -56,26 +50,10 @@ def single_plex_app():
     # If you want the user to add or skip DAPI, you can add a checkbox.
     st.write("---")
 
-    # We store each test slide as a dict in st.session_state["primary_entries"].
-    # Each dict has the fields describing the user’s choices for that slide:
-    # {
-    #   "primary_name": str,
-    #   "polymer_choice": str,
-    #   "opal_choice": str,
-    #   "tsa_dig_used": bool,
-    #   "tsa_dig_dil": float,
-    #   "tsa_dig_double": bool,
-    #   "double_primary": bool,
-    #   "double_polymer": bool,
-    #   "double_opal": bool,
-    #   "h2o2": bool,
-    #   "pb": bool,
-    #   "negative_ctrl": bool,
-    #   "primary_dil": float,
-    #   "opal_dil": float
-    # }
-    if "primary_entries" not in st.session_state:
-        st.session_state["primary_entries"] = []
+    # We'll store a list of slides in session_state["slides"].
+    # Each element is a dict describing the chosen items for that slide.
+    if "slides" not in st.session_state:
+        st.session_state["slides"] = []
 
     # -------------------------------------------------------------------------
     # 2) UI to configure "Add Primary Set"
@@ -114,48 +92,53 @@ def single_plex_app():
             tsa_dig_dil = st.number_input("TSA-DIG Dilution Factor", min_value=1.0, value=1000.0)
             tsa_dig_double = st.checkbox("Double Dispense (TSA-DIG)?", value=False)
 
-    if st.button("Add Primary Set"):
-        # Validate primary name if not negative control:
+    if st.button("Add Slide"):
+        # Validate primary name unless negative ctrl
         if not negative_ctrl and not primary_name.strip():
             st.warning("Please enter a primary name if not a negative control!")
         else:
-            new_slide = {
+            # Save one "slide" entry
+            slide_info = {
                 "h2o2": h2o2,
                 "pb": pb,
                 "negative_ctrl": negative_ctrl,
-                "primary_name": primary_name.strip() if not negative_ctrl else "(skipped by neg. ctrl)",
+
+                "primary_name": primary_name.strip(),
                 "primary_dil": primary_dil,
                 "double_primary": double_primary,
+
                 "polymer_choice": polymer_choice,
                 "double_polymer": double_polymer,
+
                 "opal_choice": opal_choice,
                 "opal_dil": opal_dil,
                 "double_opal": double_opal,
+
                 "tsa_dig_used": tsa_dig_used,
                 "tsa_dig_dil": tsa_dig_dil,
                 "tsa_dig_double": tsa_dig_double,
             }
-            st.session_state["primary_entries"].append(new_slide)
-            st.success("Added one test slide.")
+            st.session_state["slides"].append(slide_info)
+            st.success("Slide added.")
 
     # -------------------------------------------------------------------------
     # 3) Show Current Slides with Remove Buttons
     # -------------------------------------------------------------------------
     st.header("Current Slides")
-    if st.session_state["primary_entries"]:
-        for idx, slide_info in enumerate(st.session_state["primary_entries"]):
-            colA, colB = st.columns([4, 1])
+    if st.session_state["slides"]:
+        for idx, slide in enumerate(st.session_state["slides"]):
+            colA, colB = st.columns([4,1])
             with colA:
-                st.write(
-                    f"**Slide #{idx + 1}** | Primary: {slide_info['primary_name']} | "
-                    f"Polymer: {slide_info['polymer_choice']} | "
-                    f"Opal: {slide_info['opal_choice']}"
-                    + (" + TSA-DIG" if slide_info["tsa_dig_used"] else "")
-                    + (" (Neg Ctrl)" if slide_info["negative_ctrl"] else "")
-                )
+                desc = f"Slide #{idx+1} → "
+                if slide["negative_ctrl"]:
+                    desc += "(NEG CTRL) "
+                desc += f"Primary: {slide['primary_name']}, Polymer: {slide['polymer_choice']}, Opal: {slide['opal_choice']}"
+                if slide["tsa_dig_used"]:
+                    desc += " + TSA-DIG"
+                st.write(desc)
             with colB:
-                if st.button(f"Remove Slide {idx + 1}", key=f"remove_slide_{idx}"):
-                    st.session_state["primary_entries"].pop(idx)
+                if st.button(f"Remove Slide {idx+1}", key=f"remove_slide_{idx}"):
+                    st.session_state["slides"].pop(idx)
                     st.experimental_rerun()
     else:
         st.write("No slides added yet.")
@@ -166,161 +149,108 @@ def single_plex_app():
     # 4) Generate Final Tables (Reagent Table + Slide Summary)
     # -------------------------------------------------------------------------
     if st.button("Generate Final Tables"):
-        if not st.session_state["primary_entries"]:
+        slides = st.session_state["slides"]
+        if not slides:
             st.warning("No slides to generate!")
             return
 
-        # We'll produce TWO tables:
-        # A) "Reagent Table": volumes for each item: H2O2, PB, Primary, Polymer, Opal, DAPI, TSA-DIG
-        # B) "Slide Summary": the sequence for each slide (skipping primary if negative ctrl)
+        # A) Build a **Slide Summary** that shows the order for each slide
+        # B) Collect usage items for each slide, unify them by (name, type, dil, double_disp)
+        #    then sum up all usage_portions, add 1 dead volume per group, compute final volumes.
 
-        reagent_rows = []  # each row => dict( Reagent, Type, TotalVol, StockVol, Warning )
-        slide_sequences = []  # each item => dict( Slide #, SequenceList )
+        # We'll define a helper to add an "usage" to a dictionary for unification.
+        # usage_map[(name, type, dil, double)] = list_of_dispense_portions
+        usage_map = defaultdict(list)
+        slide_summaries = []
 
-        # Let's define simple usage rules for volume calculation:
-        #   total_volume = dead_vol + (dispense_vol * (2 if double? else 1))
-        #   stock_volume = total_volume / dilation_factor (except H2O2, PB, polymer might be no dilution => 1.0)
-        #
-        # If negative_ctrl => skip the "primary" item entirely (set volume=0 for that).
-        # We'll always add an item for each selection if the user checked the box, or if it's required (like DAPI).
-        # If user didn't check the box (H2O2 or PB) => skip that item.
-
-        # We'll gather items for each slide:
-        #   H2O2 => if slide_info["h2o2"] == True
-        #   PB   => if slide_info["pb"] == True
-        #   Primary => if not slide_info["negative_ctrl"]
-        #   Polymer => always included
-        #   Opal => always included
-        #   TSA-DIG => if slide_info["tsa_dig_used"]
-        #   DAPI => always included (common for single-plex)
-        #
-        # In a real lab, you might unify repeated usage if multiple slides use the same reagent.
-        # But user wants each slide's items (for clarity).
-        # We'll create a row per item per slide.
-        # Then we also build the "sequence" for the slide summary.
-
-        for idx, slide in enumerate(st.session_state["primary_entries"], start=1):
-            seq_list = []
+        for i, slide in enumerate(slides, start=1):
+            sequence = []  # for the slide summary
 
             # 1) H2O2
             if slide["h2o2"]:
-                vol = calc_total_volume(dispense_volume, dead_volume, double_disp=False)
-                # let's say no "double" for H2O2? Or you could do a separate checkbox.
-                reagent_rows.append({
-                    "Slide": idx,
-                    "Reagent": "H2O2",
-                    "Type": "H2O2",
-                    "Total Volume (µL)": round(vol, 2),
-                    "Stock Volume (µL)": round(vol, 2),  # no dilution
-                    "Warning": check_warn(vol)
-                })
-                seq_list.append("H2O2")
+                name = "H2O2"
+                usage_map[(name, "H2O2", 1.0, False)].append(calc_dispense_portion(dispense_volume, False))
+                sequence.append(name)
 
             # 2) PB
             if slide["pb"]:
-                vol = calc_total_volume(dispense_volume, dead_volume, double_disp=False)
-                reagent_rows.append({
-                    "Slide": idx,
-                    "Reagent": "Protein Block (PB)",
-                    "Type": "PB",
-                    "Total Volume (µL)": round(vol, 2),
-                    "Stock Volume (µL)": round(vol, 2),
-                    "Warning": check_warn(vol)
-                })
-                seq_list.append("PB")
+                name = "Protein Block (PB)"
+                usage_map[(name, "PB", 1.0, False)].append(calc_dispense_portion(dispense_volume, False))
+                sequence.append(name)
 
-            # 3) Primary
+            # 3) Primary (skip if negative_ctrl)
             if not slide["negative_ctrl"]:
-                # normal primary usage
-                vol = calc_total_volume(dispense_volume, dead_volume, slide["double_primary"])
-                stock_vol = vol / slide["primary_dil"]
-                reagent_rows.append({
-                    "Slide": idx,
-                    "Reagent": slide["primary_name"],
-                    "Type": "Primary",
-                    "Total Volume (µL)": round(vol, 2),
-                    "Stock Volume (µL)": round(stock_vol, 2),
-                    "Warning": check_warn(vol)
-                })
-                seq_list.append(f"Primary({slide['primary_name']})")
+                name = slide["primary_name"] or "(Unnamed Primary)"
+                # unify usage by name=the primary, type="Primary", dil=slide["primary_dil"], double=slide["double_primary"]
+                usage_map[(name, "Primary", slide["primary_dil"], slide["double_primary"])].append(
+                    calc_dispense_portion(dispense_volume, slide["double_primary"])
+                )
+                sequence.append(f"Primary({name})")
             else:
-                # negative ctrl => skip primary
-                seq_list.append("Primary(skipped - Neg Ctrl)")
+                sequence.append("Primary(skipped - NegCtrl)")
 
             # 4) Polymer
-            # For simplicity, let's assume polymer has no separate dilution => use 1.0
-            vol = calc_total_volume(dispense_volume, dead_volume, slide["double_polymer"])
-            reagent_rows.append({
-                "Slide": idx,
-                "Reagent": f"Polymer-{slide['polymer_choice']}",
-                "Type": "Polymer",
-                "Total Volume (µL)": round(vol, 2),
-                "Stock Volume (µL)": round(vol, 2),
-                "Warning": check_warn(vol)
-            })
-            seq_list.append(f"Polymer({slide['polymer_choice']})")
+            # We'll treat polymer as type="Polymer", dil=1.0
+            polymer_name = f"Polymer-{slide['polymer_choice']}"
+            usage_map[(polymer_name, "Polymer", 1.0, slide["double_polymer"])].append(
+                calc_dispense_portion(dispense_volume, slide["double_polymer"])
+            )
+            sequence.append(polymer_name)
 
             # 5) Opal
-            vol_opal = calc_total_volume(dispense_volume, dead_volume, slide["double_opal"])
-            stock_vol_opal = vol_opal / slide["opal_dil"]
-            reagent_rows.append({
-                "Slide": idx,
-                "Reagent": f"Opal-{slide['opal_choice']}",
-                "Type": "Opal",
-                "Total Volume (µL)": round(vol_opal, 2),
-                "Stock Volume (µL)": round(stock_vol_opal, 2),
-                "Warning": check_warn(vol_opal)
-            })
-            seq_list.append(f"Opal({slide['opal_choice']})")
+            opal_name = f"Opal-{slide['opal_choice']}"
+            usage_map[(opal_name, "Opal", slide["opal_dil"], slide["double_opal"])].append(
+                calc_dispense_portion(dispense_volume, slide["double_opal"])
+            )
+            sequence.append(opal_name)
 
-            # 6) TSA-DIG
+            # 6) TSA-DIG if used
             if slide["tsa_dig_used"]:
-                vol_tsa = calc_total_volume(dispense_volume, dead_volume, slide["tsa_dig_double"])
-                stock_vol_tsa = vol_tsa / slide["tsa_dig_dil"]
-                reagent_rows.append({
-                    "Slide": idx,
-                    "Reagent": "TSA-DIG",
-                    "Type": "TSA-DIG",
-                    "Total Volume (µL)": round(vol_tsa, 2),
-                    "Stock Volume (µL)": round(stock_vol_tsa, 2),
-                    "Warning": check_warn(vol_tsa)
-                })
-                seq_list.append("TSA-DIG")
+                usage_map[("TSA-DIG", "TSA-DIG", slide["tsa_dig_dil"], slide["tsa_dig_double"])].append(
+                    calc_dispense_portion(dispense_volume, slide["tsa_dig_double"])
+                )
+                sequence.append("TSA-DIG")
 
-            # 7) DAPI (always for single-plex)
-            vol_dapi = calc_total_volume(dispense_volume, dead_volume, double_disp=False)
-            # If DAPI can be diluted, you can add a separate input.
-            # For now, let's assume no separate dilution => 1.0
-            reagent_rows.append({
-                "Slide": idx,
-                "Reagent": "DAPI",
-                "Type": "DAPI",
-                "Total Volume (µL)": round(vol_dapi, 2),
-                "Stock Volume (µL)": round(vol_dapi, 2),
-                "Warning": check_warn(vol_dapi)
-            })
-            seq_list.append("DAPI")
+            # 7) DAPI (always)
+            usage_map[("DAPI", "DAPI", 1.0, False)].append(
+                calc_dispense_portion(dispense_volume, False)
+            )
+            sequence.append("DAPI")
 
-            # Save the full sequence for Slide #n
-            slide_sequences.append({
-                "Slide": idx,
-                "Sequence": " → ".join(seq_list)
+            slide_summaries.append({
+                "Slide": i,
+                "Sequence": " → ".join(sequence)
             })
 
-        # ---------------------------------------------------------------------
-        # A) Reagent Table
-        # ---------------------------------------------------------------------
-        st.subheader("Reagent Table (Per Slide)")
-        # Check how many total rows => pot limit
-        if len(reagent_rows) > 29:
-            st.error(f"WARNING: {len(reagent_rows)} total items, exceeds the 29-pot limit.")
-        st.table(reagent_rows)
-
-        # ---------------------------------------------------------------------
-        # B) Slide Summary Table
-        # ---------------------------------------------------------------------
+        # --- Build the Slide Summary Table ---
         st.subheader("Slide Summary")
-        st.table(slide_sequences)
+        st.table(slide_summaries)
+
+        # --- Build the Unified Reagent Table ---
+        st.subheader("Unified Reagent Table")
+        final_rows = []
+        for (name, rtype, dil, dbl), portions in usage_map.items():
+            sum_portions = sum(portions)  # sum of all usage
+            total_vol = dead_volume + sum_portions
+            stock_vol = total_vol / dil  # e.g. for H2O2, PB, polymer, we used dil=1.0
+
+            row = {
+                "Reagent": name,
+                "Type": rtype,
+                "Dilution Factor": dil,
+                "Double Dispense?": "Yes" if dbl else "No",
+                "Total Volume (µL)": round(total_vol, 2),
+                "Stock Volume (µL)": round(stock_vol, 2),
+                "Warning": check_volume_warning(total_vol)
+            }
+            final_rows.append(row)
+
+        # Pot-limit check
+        pot_count = len(final_rows)
+        if pot_count > 29:
+            st.error(f"WARNING: You have {pot_count} total pots, exceeding the 29-pot limit!")
+
+        st.table(final_rows)
 
 
 def main():
