@@ -19,6 +19,17 @@ def check_volume_warning(volume: float) -> str:
         return "Consider splitting!"
     return ""
 
+def format_number(num: float) -> str:
+    """
+    Return a human-friendly string:
+      - If num is an integer, show it with no decimals.
+      - Otherwise, show up to 4 decimal places (or fewer if possible).
+    """
+    if float(num).is_integer():
+        return str(int(num))
+    else:
+        # Attempt to show minimal decimals up to 4 places
+        return f"{num:.4g}"  # or you could do something else, e.g. f"{num:.4f}"
 
 ###############################################################################
 # Main single-plex app
@@ -81,7 +92,6 @@ def single_plex_app():
     opal_dil = st.number_input("Opal Dilution Factor", min_value=1.0, value=1000.0)
     double_opal = st.checkbox("Double Dispense (Opal)?", value=False)
 
-    # E) TSA-DIG => dynamic: only appear if opal_choice == "780"
     tsa_dig_used = False
     tsa_dig_dil = 1000.0
     tsa_dig_double = False
@@ -92,10 +102,32 @@ def single_plex_app():
             tsa_dig_dil = st.number_input("TSA-DIG Dilution Factor", min_value=1.0, value=1000.0)
             tsa_dig_double = st.checkbox("Double Dispense (TSA-DIG)?", value=False)
 
+    # E) DAPI
+    use_dapi = st.checkbox("Use DAPI?", value=True)
+    dapi_dil = 100
+    dapi_double = False
+    if use_dapi:
+        dapi_dil = st.number_input("DAPI Dilution Factor", min_value=1.0, value=1000.0)
+        dapi_double = st.checkbox("Double Dispense (DAPI)?", value=True)
+
+    # F) Custom Reagent
+    use_custom = st.checkbox("Use Custom Reagent?", value=False)
+    custom_name = ""
+    custom_dil = 1.0
+    custom_double = False
+    custom_diluent = ""
+    if use_custom:
+        custom_name = st.text_input("Custom Reagent Name", "")
+        custom_dil = st.number_input("Custom Dilution Factor", min_value=1.0, value=1000.0)
+        custom_double = st.checkbox("Double Dispense (Custom)?", value=False)
+        custom_diluent = st.text_input("Custom Reagent Diluent", "bondwash/blocker")
+
     if st.button("Add Slide"):
         # Validate primary name unless negative ctrl
         if not negative_ctrl and not primary_name.strip():
             st.warning("Please enter a primary name if not a negative control!")
+        elif use_custom and not custom_name.strip():
+            st.warning("Please enter a name for the custom reagent or uncheck 'Use Custom Reagent?'")
         else:
             # Save one "slide" entry
             slide_info = {
@@ -117,6 +149,16 @@ def single_plex_app():
                 "tsa_dig_used": tsa_dig_used,
                 "tsa_dig_dil": tsa_dig_dil,
                 "tsa_dig_double": tsa_dig_double,
+
+                "use_dapi": use_dapi,
+                "dapi_dil": dapi_dil,
+                "double_dapi": dapi_double,
+
+                "use_custom": use_custom,
+                "custom_name": custom_name.strip(),
+                "custom_dil": custom_dil,
+                "custom_double": custom_double,
+                "custom_diluent": custom_diluent.strip(),
             }
             st.session_state["slides"].append(slide_info)
             st.success("Slide added.")
@@ -129,12 +171,16 @@ def single_plex_app():
         for idx, slide in enumerate(st.session_state["slides"]):
             colA, colB = st.columns([4,1])
             with colA:
-                desc = f"Slide #{idx+1} → "
+                desc = f"Slide #{idx+1} "
                 if slide["negative_ctrl"]:
-                    desc += "(NEG CTRL) "
-                desc += f"Primary: {slide['primary_name']}, Polymer: {slide['polymer_choice']}, Opal: {slide['opal_choice']}"
+                    desc += "[NEG CTRL] "
+                desc += f"| Primary: {slide['primary_name']} | Polymer: {slide['polymer_choice']} | Opal: {slide['opal_choice']}"
                 if slide["tsa_dig_used"]:
                     desc += " + TSA-DIG"
+                if slide["use_dapi"]:
+                    desc += " + DAPI"
+                if slide["use_custom"]:
+                    desc += f" + Custom({slide['custom_name']})"
                 st.write(desc)
             with colB:
                 if st.button(f"Remove Slide {idx+1}", key=f"remove_slide_{idx}"):
@@ -154,93 +200,110 @@ def single_plex_app():
             st.warning("No slides to generate!")
             return
 
-        # A) Build a **Slide Summary** that shows the order for each slide
-        # B) Collect usage items for each slide, unify them by (name, type, dil, double_disp)
-        #    then sum up all usage_portions, add 1 dead volume per group, compute final volumes.
-
-        # We'll define a helper to add an "usage" to a dictionary for unification.
-        # usage_map[(name, type, dil, double)] = list_of_dispense_portions
+        # We unify usage in a map:
+        # key = (reagent_name, reagent_type, dil_factor, double_disp, diluent)
+        # value = list_of_dispense_portions
         usage_map = defaultdict(list)
+
+        # We'll create a "slide summary" as well
         slide_summaries = []
 
         for i, slide in enumerate(slides, start=1):
-            sequence = []  # for the slide summary
+            seq = []
 
-            # 1) H2O2
+            # H2O2
             if slide["h2o2"]:
-                name = "H2O2"
-                usage_map[(name, "H2O2", 1.0, False)].append(calc_dispense_portion(dispense_volume, False))
-                sequence.append(name)
+                # type = "H2O2", dil=1.0, double=False, diluent=""
+                usage_map[("H2O2", "H2O2", 1.0, False, "")].append(
+                    calc_dispense_portion(dispense_volume, False)
+                )
+                seq.append("H2O2")
 
-            # 2) PB
+            # PB
             if slide["pb"]:
-                name = "Protein Block (PB)"
-                usage_map[(name, "PB", 1.0, False)].append(calc_dispense_portion(dispense_volume, False))
-                sequence.append(name)
+                usage_map[("Protein Block (PB)", "PB", 1.0, False, "")].append(
+                    calc_dispense_portion(dispense_volume, False)
+                )
+                seq.append("PB")
 
-            # 3) Primary (skip if negative_ctrl)
+            # Primary
             if not slide["negative_ctrl"]:
-                name = slide["primary_name"] or "(Unnamed Primary)"
-                # unify usage by name=the primary, type="Primary", dil=slide["primary_dil"], double=slide["double_primary"]
-                usage_map[(name, "Primary", slide["primary_dil"], slide["double_primary"])].append(
+                # name, type="Primary", dil=slide["primary_dil"], double=slide["double_primary"], diluent=""
+                p_name = slide["primary_name"] or "(Unnamed Primary)"
+                usage_map[(p_name, "Primary", slide["primary_dil"], slide["double_primary"], "")].append(
                     calc_dispense_portion(dispense_volume, slide["double_primary"])
                 )
-                sequence.append(f"Primary({name})")
+                seq.append(f"Primary({p_name})")
             else:
-                sequence.append("Primary(skipped - NegCtrl)")
+                seq.append("Primary(skipped - NegCtrl)")
 
-            # 4) Polymer
-            # We'll treat polymer as type="Polymer", dil=1.0
+            # Polymer
             polymer_name = f"Polymer-{slide['polymer_choice']}"
-            usage_map[(polymer_name, "Polymer", 1.0, slide["double_polymer"])].append(
+            # type="Polymer", dil=1.0, double=slide["double_polymer"], diluent=""
+            usage_map[(polymer_name, "Polymer", 1.0, slide["double_polymer"], "")].append(
                 calc_dispense_portion(dispense_volume, slide["double_polymer"])
             )
-            sequence.append(polymer_name)
+            seq.append(polymer_name)
 
-            # 5) Opal
+            # Opal
             opal_name = f"Opal-{slide['opal_choice']}"
-            usage_map[(opal_name, "Opal", slide["opal_dil"], slide["double_opal"])].append(
+            usage_map[(opal_name, "Opal", slide["opal_dil"], slide["double_opal"], "")].append(
                 calc_dispense_portion(dispense_volume, slide["double_opal"])
             )
-            sequence.append(opal_name)
+            seq.append(opal_name)
 
-            # 6) TSA-DIG if used
+            # TSA-DIG
             if slide["tsa_dig_used"]:
-                usage_map[("TSA-DIG", "TSA-DIG", slide["tsa_dig_dil"], slide["tsa_dig_double"])].append(
+                usage_map[("TSA-DIG", "TSA-DIG", slide["tsa_dig_dil"], slide["tsa_dig_double"], "")].append(
                     calc_dispense_portion(dispense_volume, slide["tsa_dig_double"])
                 )
-                sequence.append("TSA-DIG")
+                seq.append("TSA-DIG")
 
-            # 7) DAPI (always)
-            usage_map[("DAPI", "DAPI", 1.0, False)].append(
-                calc_dispense_portion(dispense_volume, False)
-            )
-            sequence.append("DAPI")
+            # DAPI
+            if slide["use_dapi"]:
+                usage_map[("DAPI", "DAPI", slide["dapi_dil"], slide["double_dapi"], "")].append(
+                    calc_dispense_portion(dispense_volume, slide["double_dapi"])
+                )
+                seq.append("DAPI")
 
+            # Custom Reagent
+            if slide["use_custom"]:
+                # unify by user-provided name, type="Custom", dil=..., double=..., diluent=...
+                c_name = slide["custom_name"]
+                c_dil = slide["custom_dil"]
+                c_double = slide["custom_double"]
+                c_diluent = slide["custom_diluent"]
+                usage_map[(c_name, "Custom", c_dil, c_double, c_diluent)].append(
+                    calc_dispense_portion(dispense_volume, c_double)
+                )
+                seq.append(f"Custom({c_name})")
+
+            # Save the sequence
             slide_summaries.append({
                 "Slide": i,
-                "Sequence": " → ".join(sequence)
+                "Sequence": " → ".join(seq)
             })
 
-        # --- Build the Slide Summary Table ---
+        # A) Slide Summary
         st.subheader("Slide Summary")
         st.table(slide_summaries)
 
-        # --- Build the Unified Reagent Table ---
+        # B) Unified Reagent Table
         st.subheader("Unified Reagent Table")
         final_rows = []
-        for (name, rtype, dil, dbl), portions in usage_map.items():
-            sum_portions = sum(portions)  # sum of all usage
+        for (name, rtype, dil, dbl, diluent), portions in usage_map.items():
+            sum_portions = sum(portions)
             total_vol = dead_volume + sum_portions
-            stock_vol = total_vol / dil  # e.g. for H2O2, PB, polymer, we used dil=1.0
+            stock_vol = total_vol / dil  # e.g. if dil=1 => no dilution
 
             row = {
                 "Reagent": name,
                 "Type": rtype,
-                "Dilution Factor": dil,
-                "Double Dispense?": "Yes" if dbl else "No",
-                "Total Volume (µL)": round(total_vol, 2),
-                "Stock Volume (µL)": round(stock_vol, 2),
+                "Dilution Factor": format_number(dil),
+                "Double Disp?": "Yes" if dbl else "No",
+                "Diluent": diluent,
+                "Total Volume (µL)": format_number(total_vol),
+                "Stock Volume (µL)": format_number(stock_vol),
                 "Warning": check_volume_warning(total_vol)
             }
             final_rows.append(row)
@@ -250,6 +313,7 @@ def single_plex_app():
         if pot_count > 29:
             st.error(f"WARNING: You have {pot_count} total pots, exceeding the 29-pot limit!")
 
+        # Display final table
         st.table(final_rows)
 
 
