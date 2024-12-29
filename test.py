@@ -31,12 +31,28 @@ def format_number(num: float) -> str:
         # Attempt to show minimal decimals up to 4 places
         return f"{num:.4g}"  # or you could do something else, e.g. f"{num:.4f}"
 
+def choose_diluent(rtype: str, custom: str = "") -> str:
+    """
+    Return the appropriate diluent based on reagent type (or the user-provided custom).
+    """
+    if rtype in ["H2O2", "PB", "Polymer"]:
+        return ""
+    elif rtype == "Opal":
+        return "amplifier"
+    elif rtype in ["Primary", "TSA-DIG", "DAPI"]:
+        return "bondwash/blocker"
+    elif rtype == "Custom":
+        return custom
+    else:
+        return ""
+
+
 ###############################################################################
 # Main single-plex app
 ###############################################################################
 
 def single_plex_app():
-    st.title("Single-Plex Example with Dynamic TSA-DIG Prompt & Slide Summary")
+    st.title("Bond RX Opal Automatic reagent calculator")
 
     # -------------------------------------------------------------------------
     # 1) Global Settings
@@ -70,7 +86,8 @@ def single_plex_app():
     # 2) UI to configure "Add Primary Set"
     #    We'll do it with normal widgets (not st.form) for dynamic TSA-DIG.
     # -------------------------------------------------------------------------
-    st.header("Add Primary (One Slide Each)")
+    st.header("Add Slide (Single-Plex)")
+
     # A) Basic checkboxes
     h2o2 = st.checkbox("Use H2O2?", value=True)
     pb = st.checkbox("Use Protein Block (PB)?", value=True)
@@ -295,6 +312,12 @@ def single_plex_app():
             sum_portions = sum(portions)
             total_vol = dead_volume + sum_portions
             stock_vol = total_vol / dil  # e.g. if dil=1 => no dilution
+
+            # Determine final diluent
+            if rtype == "Custom":
+                diluent = cust_diluent  # user-specified
+            else:
+                diluent = choose_diluent(rtype)
 
             row = {
                 "Reagent": name,
