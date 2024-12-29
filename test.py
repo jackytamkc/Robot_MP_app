@@ -4,23 +4,34 @@ import pandas as pd
 import math
 
 ###############################################################################
-# Shared Utility Functions
+# SHARED UTILITY FUNCTIONS
 ###############################################################################
 
 def calc_dispense_portion(disp_vol: float, double_disp: bool) -> float:
-    """Return dispense portion = disp_vol * 2 if double_disp else 1."""
+    """
+    Return the portion used by one usage:
+    portion = disp_vol * 2 if double_disp else disp_vol
+    """
     return disp_vol * (2 if double_disp else 1)
 
 def check_volume_warning(volume: float) -> str:
-    """Return 'EXCEEDS 6000 µL limit!' if >6000, 'Consider splitting!' if >5000, else ''. """
+    """
+    If volume > 6000 => 'EXCEEDS 6000 µL limit!'
+    If volume > 5000 => 'Consider splitting!'
+    Else => ''
+    """
     if volume > 6000:
         return "EXCEEDS 6000 µL limit!"
     elif volume > 5000:
         return "Consider splitting!"
-    return ""
+    else:
+        return ""
 
 def format_number(num: float) -> str:
-    """No decimals if integer, else up to 4 sig digits."""
+    """
+    If num is effectively an integer, show no decimals.
+    Otherwise show up to 4 significant digits.
+    """
     if float(num).is_integer():
         return str(int(num))
     else:
@@ -28,11 +39,11 @@ def format_number(num: float) -> str:
 
 def choose_diluent(rtype: str, custom: str = "") -> str:
     """
-    By default:
+    Return the default diluent based on reagent type:
       - 'H2O2', 'PB', 'Polymer', 'Vectaplex' => ''
       - 'Opal' => 'amplifier'
       - 'Primary', 'TSA-DIG', 'DAPI' => 'bondwash/blocker'
-      - 'Custom' => custom
+      - 'Custom' => use 'custom'
     """
     if rtype in ["H2O2", "PB", "Polymer", "Vectaplex"]:
         return ""
@@ -45,10 +56,14 @@ def choose_diluent(rtype: str, custom: str = "") -> str:
     else:
         return ""
 
-def split_row(row_dict, max_allowed=5000, dead_vol=150):
+def split_row(row_dict: dict, max_allowed=5000, dead_vol=150) -> list:
     """
-    If row's total volume > max_allowed, split into multiple sub-pots, each re-incurring dead volume.
-    row_dict must have 'base_dispense_portion' to reconstruct how many sub-pots we need.
+    If row's total volume > max_allowed, split into multiple sub-pots.
+    Each sub-pot re-incurs dead_vol.
+    We rely on 'base_dispense_portion' in row_dict to know how much portion was
+    before adding dead volume.
+
+    Returns a list of new sub-rows if splitting is needed; otherwise returns [row_dict].
     """
     total_str = row_dict["Total Volume (µL)"]
     try:
@@ -61,21 +76,24 @@ def split_row(row_dict, max_allowed=5000, dead_vol=150):
 
     portion = row_dict.get("base_dispense_portion", None)
     if portion is None:
+        # fallback
         portion = total_vol - dead_vol
         if portion < 0:
             portion = 0
 
+    # each sub-pot can have at most (max_allowed - dead_vol) portion
     max_portion = max_allowed - dead_vol
     if max_portion <= 0:
-        return [row_dict]  # can't fix
+        # can't fix
+        return [row_dict]
 
     needed = math.ceil(portion / max_portion)
     new_rows = []
     leftover = portion
 
-    dil_str = row_dict["Dilution Factor"]
+    # parse dilution factor
     try:
-        dil_factor = float(dil_str)
+        dil_factor = float(row_dict["Dilution Factor"])
     except:
         dil_factor = 1.0
 
@@ -96,21 +114,21 @@ def split_row(row_dict, max_allowed=5000, dead_vol=150):
     return new_rows
 
 ###############################################################################
-# Single-Plex Flow (unchanged)
+# SINGLE-PLEX FLOW
 ###############################################################################
 
-def single_plex_flow(dispense_volume, dead_volume):
+def single_plex_flow(dispense_vol, dead_vol):
     st.write("### Single-Plex Flow")
 
+    # Slide storage
     if "sp_slides" not in st.session_state:
         st.session_state["sp_slides"] = []
 
-    # --- UI to add a single-plex slide ---
+    # 1) Add Single-Plex Slide
     st.subheader("Add Single-Plex Slide")
-
-    sp_h2o2  = st.checkbox("Use H2O2? (Single-Plex)", value=True)
-    sp_pb    = st.checkbox("Use Protein Block? (Single-Plex)", value=True)
-    sp_neg   = st.checkbox("Negative Control? (skip primary)", value=False)
+    sp_h2o2 = st.checkbox("Use H2O2? (Single-Plex)", value=True)
+    sp_pb   = st.checkbox("Use Protein Block? (Single-Plex)", value=True)
+    sp_neg  = st.checkbox("Negative Control? (skip primary)", value=False)
 
     # Primary
     sp_prim_name = st.text_input("Primary Name (Single-Plex)", "")
@@ -118,26 +136,26 @@ def single_plex_flow(dispense_volume, dead_volume):
     sp_prim_dbl  = st.checkbox("Double Dispense (Primary)?", value=False)
 
     # Polymer
-    poly_opts = ["Rabbit", "Sheep", "Goat", "Mouse", "Rat", "Others"]
+    poly_opts = ["Rabbit","Sheep","Goat","Mouse","Rat","Others"]
     sp_poly = st.selectbox("Polymer (Single-Plex)", poly_opts)
     sp_poly_dbl = st.checkbox("Double Dispense (Polymer)?", value=False)
 
     # Opal
     opal_opts = ["480", "520", "540", "570", "620", "650", "690", "780", "others"]
-    sp_opal_choice = st.selectbox("Opal (Single-Plex)", opal_opts)
-    sp_opal_dil    = st.number_input("Opal Dil (Single-Plex)", min_value=1.0, value=1000.0)
-    sp_opal_dbl    = st.checkbox("Double Dispense (Opal)?", value=False)
+    sp_opal   = st.selectbox("Opal (Single-Plex)", opal_opts)
+    sp_opal_dil = st.number_input("Opal Dil (Single-Plex)", min_value=1.0, value=1000.0)
+    sp_opal_dbl = st.checkbox("Double Dispense (Opal)?", value=False)
 
     # TSA if opal=780
     sp_tsa_used = False
-    sp_tsa_dil  = 1000.0
-    sp_tsa_dbl  = False
-    if sp_opal_choice == "780":
-        st.markdown("Opal 780 => consider TSA-DIG?")
+    sp_tsa_dil = 1000.0
+    sp_tsa_dbl = False
+    if sp_opal == "780":
+        st.markdown("Opal 780 => TSA-DIG?")
         sp_tsa_used = st.checkbox("Use TSA-DIG? (Single-Plex)")
         if sp_tsa_used:
             sp_tsa_dil = st.number_input("TSA-DIG Dil (Single-Plex)", min_value=1.0, value=1000.0)
-            sp_tsa_dbl = st.checkbox("Double Dispense (TSA)?", value=False)
+            sp_tsa_dbl = st.checkbox("Double Dispense (TSA)? (Single-Plex)", value=False)
 
     # DAPI
     sp_use_dapi = st.checkbox("Use DAPI? (Single-Plex)", value=False)
@@ -148,230 +166,214 @@ def single_plex_flow(dispense_volume, dead_volume):
         sp_dapi_dbl = st.checkbox("Double Dispense (DAPI)?", value=False)
 
     # custom
-    sp_use_custom = st.checkbox("Use Custom Reagent? (Single-Plex)", value=False)
+    sp_use_cust = st.checkbox("Use Custom Reagent? (Single-Plex)", value=False)
     sp_cname = ""
     sp_cdil  = 1.0
     sp_cdbl  = False
     sp_cdilu = ""
-    if sp_use_custom:
-        sp_cname = st.text_input("Custom Reagent Name (Single-Plex)", "")
-        sp_cdil  = st.number_input("Custom Reagent Dil (Single-Plex)", min_value=1.0, value=1000.0)
-        sp_cdbl  = st.checkbox("Double Dispense (Custom)? (Single-Plex)", value=False)
-        sp_cdilu = st.text_input("Custom Reagent Diluent (Single-Plex)", "bondwash/blocker")
+    if sp_use_cust:
+        sp_cname = st.text_input("Custom Name (Single-Plex)", "")
+        sp_cdil  = st.number_input("Custom Dil (Single-Plex)", min_value=1.0, value=1000.0)
+        sp_cdbl  = st.checkbox("Double Dispense (Custom)?", value=False)
+        sp_cdilu = st.text_input("Custom Diluent (Single-Plex)", "bondwash/blocker")
 
+    # Button to add
     if st.button("Add Single-Plex Slide"):
         if not sp_neg and not sp_prim_name.strip():
-            st.warning("Provide a primary name or check 'Negative Control'")
-        elif sp_use_custom and not sp_cname.strip():
-            st.warning("Enter custom reagent name or uncheck 'use custom'")
+            st.warning("Provide a primary name or check negative control.")
+        elif sp_use_cust and not sp_cname.strip():
+            st.warning("Provide custom reagent name or uncheck 'Use Custom'.")
         else:
-            slide_dict = {
+            sdict = {
                 "h2o2": sp_h2o2,
                 "pb": sp_pb,
-                "negative_ctrl": sp_neg,
-                "primary_name": sp_prim_name.strip(),
-                "primary_dil": sp_prim_dil,
-                "double_primary": sp_prim_dbl,
-                "polymer": sp_poly,
-                "double_polymer": sp_poly_dbl,
-                "opal": sp_opal_choice,
+                "neg": sp_neg,
+                "prim_name": sp_prim_name.strip(),
+                "prim_dil": sp_prim_dil,
+                "prim_dbl": sp_prim_dbl,
+                "poly": sp_poly,
+                "poly_dbl": sp_poly_dbl,
+                "opal": sp_opal,
                 "opal_dil": sp_opal_dil,
-                "double_opal": sp_opal_dbl,
+                "opal_dbl": sp_opal_dbl,
                 "tsa_used": sp_tsa_used,
                 "tsa_dil": sp_tsa_dil,
-                "tsa_double": sp_tsa_dbl,
+                "tsa_dbl": sp_tsa_dbl,
                 "use_dapi": sp_use_dapi,
                 "dapi_dil": sp_dapi_dil,
-                "double_dapi": sp_dapi_dbl,
-                "use_custom": sp_use_custom,
-                "custom_name": sp_cname.strip(),
-                "custom_dil": sp_cdil,
-                "custom_double": sp_cdbl,
-                "custom_diluent": sp_cdilu.strip(),
+                "dapi_dbl": sp_dapi_dbl,
+                "use_custom": sp_use_cust,
+                "cust_name": sp_cname.strip(),
+                "cust_dil": sp_cdil,
+                "cust_dbl": sp_cdbl,
+                "cust_dilu": sp_cdilu.strip(),
             }
-            st.session_state["sp_slides"].append(slide_dict)
+            st.session_state["sp_slides"].append(sdict)
             st.success("Single-Plex Slide added.")
 
-    # Show existing slides
-    st.write("#### Current Single-Plex Slides:")
-    if "sp_slides" in st.session_state and st.session_state["sp_slides"]:
-        for i, sld in enumerate(st.session_state["sp_slides"]):
-            st.write(f"Slide {i+1}: primary={sld['primary_name']}, opal={sld['opal']}, polymer={sld['polymer']}, neg={sld['negative_ctrl']}")
-    else:
-        st.write("No single-plex slides yet.")
+    # 2) Show current Single-Plex slides + remove button
+    st.write("#### Current Single-Plex Slides")
+    for idx, sld in enumerate(st.session_state["sp_slides"]):
+        col1, col2 = st.columns([4,1])
+        with col1:
+            st.write(f"Slide #{idx+1}: primary={sld['prim_name']}, opal={sld['opal']}, negctrl={sld['neg']}")
+        with col2:
+            if st.button(f"Remove Single-Plex Slide {idx+1}", key=f"remove_sp_{idx}"):
+                st.session_state["sp_slides"].pop(idx)
+                st.rerun()  # or st.stop() if your version is older
 
-    # Compute single-plex table (like before)
+    # 3) Compute table
     if "sp_final_rows" not in st.session_state:
         st.session_state["sp_final_rows"] = []
 
-    def build_single_plex_final():
+    def build_sp_table():
         from collections import defaultdict
-        sp_map = defaultdict(list)
-        slide_summary = []
+        usage_map = defaultdict(list)
+        slide_summ = []
+        sp_local = st.session_state["sp_slides"]
+        if not sp_local:
+            st.warning("No single-plex slides to compute!")
+            return
 
-        for i, sld in enumerate(st.session_state["sp_slides"], start=1):
+        # Build usage
+        for i, sld in enumerate(sp_local, start=1):
             seq = []
             if sld["h2o2"]:
-                sp_map[("H2O2", "H2O2", 1.0, False, "")].append(calc_dispense_portion(dispense_volume, False))
+                usage_map[("H2O2","H2O2",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
                 seq.append("H2O2")
             if sld["pb"]:
-                sp_map[("Protein Block (PB)", "PB", 1.0, False, "")].append(calc_dispense_portion(dispense_volume, False))
+                usage_map[("Protein Block (PB)","PB",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
                 seq.append("PB")
-            if not sld["negative_ctrl"]:
-                # primary
-                pname = sld["primary_name"] or "(Unnamed Primary)"
-                sp_map[(pname, "Primary", sld["primary_dil"], sld["double_primary"], "")].append(
-                    calc_dispense_portion(dispense_volume, sld["double_primary"])
+            if not sld["neg"]:
+                pname = sld["prim_name"] or "(Unnamed Primary)"
+                usage_map[(pname,"Primary", sld["prim_dil"], sld["prim_dbl"], "")].append(
+                    calc_dispense_portion(dispense_vol, sld["prim_dbl"])
                 )
                 seq.append(f"Primary({pname})")
             else:
-                seq.append("Primary(skipped - Neg Ctrl)")
-
+                seq.append("Primary(skipped - Neg)")
             # polymer
-            pol_name = f"Polymer-{sld['polymer']}"
-            sp_map[(pol_name, "Polymer", 1.0, sld["double_polymer"], "")].append(
-                calc_dispense_portion(dispense_volume, sld["double_polymer"])
+            pol_name = f"Polymer-{sld['poly']}"
+            usage_map[(pol_name, "Polymer", 1.0, sld["poly_dbl"], "")].append(
+                calc_dispense_portion(dispense_vol, sld["poly_dbl"])
             )
             seq.append(pol_name)
 
             # opal
             op_name = f"Opal-{sld['opal']}"
-            sp_map[(op_name, "Opal", sld["opal_dil"], sld["double_opal"], "")].append(
-                calc_dispense_portion(dispense_volume, sld["double_opal"])
+            usage_map[(op_name, "Opal", sld["opal_dil"], sld["opal_dbl"], "")].append(
+                calc_dispense_portion(dispense_vol, sld["opal_dbl"])
             )
             seq.append(op_name)
 
             # tsa
             if sld["tsa_used"]:
-                sp_map[("TSA-DIG", "TSA-DIG", sld["tsa_dil"], sld["tsa_double"], "")].append(
-                    calc_dispense_portion(dispense_volume, sld["tsa_double"])
+                usage_map[("TSA-DIG","TSA-DIG", sld["tsa_dil"], sld["tsa_dbl"], "")].append(
+                    calc_dispense_portion(dispense_vol, sld["tsa_dbl"])
                 )
                 seq.append("TSA-DIG")
 
             # dapi
             if sld["use_dapi"]:
-                sp_map[("DAPI", "DAPI", sld["dapi_dil"], sld["double_dapi"], "")].append(
-                    calc_dispense_portion(dispense_volume, sld["double_dapi"])
+                usage_map[("DAPI","DAPI", sld["dapi_dil"], sld["dapi_dbl"], "")].append(
+                    calc_dispense_portion(dispense_vol, sld["dapi_dbl"])
                 )
                 seq.append("DAPI")
 
             # custom
             if sld["use_custom"]:
-                c_name = sld["custom_name"]
-                c_dil  = sld["custom_dil"]
-                c_dbl  = sld["custom_double"]
-                c_dilu = sld["custom_diluent"]
-                sp_map[(c_name, "Custom", c_dil, c_dbl, c_dilu)].append(
-                    calc_dispense_portion(dispense_volume, c_dbl)
+                cname = sld["cust_name"]
+                cdil  = sld["cust_dil"]
+                cdbl  = sld["cust_dbl"]
+                cdilu = sld["cust_dilu"]
+                usage_map[(cname,"Custom", cdil, cdbl, cdilu)].append(
+                    calc_dispense_portion(dispense_vol, cdbl)
                 )
-                seq.append(f"Custom({c_name})")
+                seq.append(f"Custom({cname})")
 
-            slide_summary.append({"Slide": i, "Sequence": " → ".join(seq)})
+            slide_summ.append({"Slide": i, "Sequence": " → ".join(seq)})
 
+        # Show summary
         st.subheader("Single-Plex Slide Summary")
-        st.table(slide_summary)
+        st.table(slide_summ)
 
         # unify
-        rows = []
-        for (name, rtype, dil, dbl, cdilu), parts in sp_map.items():
-            summation = sum(parts)
-            totvol = dead_volume + summation
-            stock = totvol / dil
-            warn = check_volume_warning(totvol)
-            # pick final diluent
-            if rtype == "Custom":
-                final_diluent = cdilu
+        final_rows = []
+        for (name, rtype, dil, dbl, cdilu), portions in usage_map.items():
+            sums = sum(portions)
+            totv = dead_vol + sums
+            stck = totv / dil
+            w = check_volume_warning(totv)
+            if rtype=="Custom":
+                dilu = cdilu
             else:
-                final_diluent = choose_diluent(rtype)
-            rows.append({
+                dilu = choose_diluent(rtype)
+
+            final_rows.append({
                 "Reagent": name,
                 "Type": rtype,
                 "Dilution Factor": format_number(dil),
                 "Double Disp?": "Yes" if dbl else "No",
-                "Diluent": final_diluent,
-                "Total Volume (µL)": format_number(totvol),
-                "Stock Volume (µL)": format_number(stock),
-                "Warning": warn,
-                "base_dispense_portion": summation,
+                "Diluent": dilu,
+                "Total Volume (µL)": format_number(totv),
+                "Stock Volume (µL)": format_number(stck),
+                "Warning": w,
+                "base_dispense_portion": sums,
             })
-        st.session_state["sp_final_rows"] = rows
+        st.session_state["sp_final_rows"] = final_rows
 
     if st.button("Compute Single-Plex Table"):
-        build_single_plex_final()
-        st.success("Single-Plex table built! See below.")
+        build_sp_table()
+        st.success("Single-Plex table built! Scroll down.")
 
-    if st.session_state.get("sp_final_rows"):
-        sp_fr = st.session_state["sp_final_rows"]
-        st.subheader("Single-Plex Table (Before Splitting)")
-        df = pd.DataFrame(sp_fr)
+    # 4) Show final + splitting only if needed
+    if st.session_state["sp_final_rows"]:
+        sp_final = st.session_state["sp_final_rows"]
 
-        def highlight_sp(row):
-            try:
-                vv = float(row["Total Volume (µL)"])
-            except:
-                vv = 0
-            if vv > 6000:
-                return ["background-color: #ffcccc"]*len(row)
-            elif vv > 5000:
-                return ["background-color: #ffffcc"]*len(row)
-            else:
-                return [""]*len(row)
-        sty = df.style.apply(highlight_sp, axis=1)
-        st.dataframe(sty, use_container_width=True)
+        # Are there any row > 5000?
+        any_over_5000 = any(
+            r["Warning"] in ["Consider splitting!", "EXCEEDS 6000 µL limit!"]
+            for r in sp_final
+        )
+        if not any_over_5000:
+            # Just show final table, no splitting
+            st.subheader("Single-Plex Final Table (No Splitting Needed)")
+            df = pd.DataFrame(sp_final)
+            st.dataframe(df, use_container_width=True)
+        else:
+            # Show final table and a split button
+            st.subheader("Single-Plex Table (Potential Splitting Needed)")
+            df = pd.DataFrame(sp_final)
+            st.dataframe(df, use_container_width=True)
 
-        # splitting
-        overidx = df.index[df["Warning"].isin(["Consider splitting!", "EXCEEDS 6000 µL limit!"])].tolist()
-        if overidx:
-            st.write("Some single-plex rows exceed 5000. Split them?")
-            if st.button("Split Single-Plex Rows >5000"):
-                newrows = []
-                for i, row_ in enumerate(sp_fr):
-                    if i in overidx:
-                        splitted = split_row(row_, max_allowed=5000, dead_vol=dead_volume)
-                        newrows.extend(splitted)
+            if st.button("Split Single-Plex Rows >5000?"):
+                new_list = []
+                for row_ in sp_final:
+                    if row_["Warning"] in ["Consider splitting!", "EXCEEDS 6000 µL limit!"]:
+                        splitted = split_row(row_, max_allowed=5000, dead_vol=dead_vol)
+                        new_list.extend(splitted)
                     else:
-                        newrows.append(row_)
-                st.session_state["sp_final_rows"] = newrows
-                st.success("Splitting done! Scroll down.")
+                        new_list.append(row_)
+                st.session_state["sp_final_rows"] = new_list
+                st.success("Splitting done! See final splitted table below.")
                 st.stop()
 
-        # After split
-        sp_fr_up = st.session_state["sp_final_rows"]
-        df2 = pd.DataFrame(sp_fr_up)
-        st.subheader("Single-Plex Table (After Splitting)")
-        def highlight_sp2(row):
-            try:
-                vv = float(row["Total Volume (µL)"])
-            except:
-                vv = 0
-            if vv > 6000:
-                return ["background-color: #ffcccc"]*len(row)
-            elif vv > 5000:
-                return ["background-color: #ffffcc"]*len(row)
-            else:
-                return [""]*len(row)
-        sty2 = df2.style.apply(highlight_sp2, axis=1)
-        st.dataframe(sty2, use_container_width=True)
-        if len(sp_fr_up) > 29:
-            st.error(f"WARNING: You have {len(sp_fr_up)} total pots, exceeds 29 limit!")
-
 ###############################################################################
-# Multi-Plex Flow with new constraints
+# MULTI-PLEX FLOW
 ###############################################################################
 
-def multi_plex_flow(dispense_volume, dead_volume):
+def multi_plex_flow(dispense_vol, dead_vol):
     st.write("### Multi-Plex Flow (New Sequence Logic)")
 
-    # Store multi-plex slides
+    # store multi-plex slides
     if "mp_slides" not in st.session_state:
         st.session_state["mp_slides"] = []
 
-    # 1) Add a multi-plex slide
+    # 1) Add multi-plex slide
     st.subheader("Add Multi-Plex Slide")
 
     mp_h2o2 = st.checkbox("Use H2O2? (Multi-Plex)", value=True)
-    # We'll track PB in two ways: PB before primary, PB after opal
-    # user can choose if they want PB at both times or none
+    # PB toggles
     mp_pb_before = st.checkbox("Use PB before each primary?", value=True)
     mp_pb_after  = st.checkbox("Use PB after each opal?", value=False)
 
@@ -383,73 +385,71 @@ def multi_plex_flow(dispense_volume, dead_volume):
     mp_dapi_dbl = False
     if mp_use_dapi:
         mp_dapi_dil = st.number_input("DAPI Dil (Multi-Plex)", min_value=1.0, value=1000.0)
-        mp_dapi_dbl = st.checkbox("Double Dispense (DAPI)?", value=False)
+        mp_dapi_dbl = st.checkbox("Double Dispense (DAPI)? (Multi-Plex)?", value=False)
 
     # custom
-    mp_use_custom = st.checkbox("Use Custom Reagent? (Multi-Plex)", value=False)
+    mp_use_cust = st.checkbox("Use Custom? (Multi-Plex)", value=False)
     mp_cname = ""
     mp_cdil  = 1.0
-    mp_cdb   = False
-    mp_cddi  = ""
-    if mp_use_custom:
-        mp_cname = st.text_input("Custom Reagent Name (Multi-Plex)", "")
-        mp_cdil  = st.number_input("Custom Reagent Dil Factor (Multi-Plex)", min_value=1.0, value=1000.0)
-        mp_cdb   = st.checkbox("Double Dispense (Custom)? (Multi-Plex)?", value=False)
-        mp_cddi  = st.text_input("Custom Reagent Diluent (Multi-Plex)", "bondwash/blocker")
+    mp_cdbl  = False
+    mp_cdilu = ""
+    if mp_use_cust:
+        mp_cname = st.text_input("Custom Name (Multi-Plex)", "")
+        mp_cdil  = st.number_input("Custom Dil (Multi-Plex)", min_value=1.0, value=1000.0)
+        mp_cdbl  = st.checkbox("Double Dispense (Custom)? (Multi-Plex)", value=False)
+        mp_cdilu = st.text_input("Custom Diluent (Multi-Plex)", "bondwash/blocker")
 
-    # Vectaplex usage
-    mp_vectaplex_used = st.checkbox("Use Vectaplex? (Multi-Plex)", value=False)
-    mp_vectaplex_double = False
-    if mp_vectaplex_used:
-        mp_vectaplex_double = st.checkbox("Double Dispense (Vectaplex)?", value=False)
+    # Vectaplex
+    mp_vectaplex = st.checkbox("Use Vectaplex? (Multi-Plex)", value=False)
+    mp_vect_dbl  = False
+    if mp_vectaplex:
+        mp_vect_dbl = st.checkbox("Double Dispense (Vectaplex)?", value=False)
 
     # how many plex
     mp_nplex = st.number_input("Number of plex in this Multi-Plex slide?", min_value=1, max_value=8, value=2)
 
-    # For each plex, user picks primary set
-    # *BUT* we must also ensure that if user picks 780 in any plex that is not the last plex, we warn
-    plex_list = []
+    plex_entries = []
     warn_780_position = False
 
+    # For each plex
     for i in range(mp_nplex):
         st.write(f"**Plex #{i+1}**")
-        pm_name = st.text_input(f"Primary Name (Plex {i+1})", "")
-        pm_dil  = st.number_input(f"Primary Dil (Plex {i+1})", min_value=1.0, value=1000.0)
-        pm_dbl  = st.checkbox(f"Double Dispense (Primary) (Plex {i+1})?", value=False, key=f"mp_p{i}_dblprim")
+        pm_name = st.text_input(f"Primary Name (Plex {i+1})", key=f"mp_prim_name_{i}")
+        pm_dil  = st.number_input(f"Primary Dil (Plex {i+1})", min_value=1.0, value=1000.0, key=f"mp_prim_dil_{i}")
+        pm_dbl  = st.checkbox(f"Double Dispense(Primary)? (Plex {i+1})", value=False, key=f"mp_prim_dbl_{i}")
 
         # polymer
-        pm_poly_opts = ["Rabbit", "Sheep", "Goat", "Mouse", "Rat", "Others"]
-        pm_poly_sel  = st.selectbox(f"Polymer (Plex {i+1})", pm_poly_opts)
-        pm_poly_dbl  = st.checkbox(f"Double Dispense (Polymer)? (Plex {i+1})", value=False, key=f"mp_p{i}_dblpoly")
+        pm_poly_opts = ["Rabbit","Sheep","Goat","Mouse","Rat","Others"]
+        pm_poly_sel  = st.selectbox(f"Polymer (Plex {i+1})", pm_poly_opts, key=f"mp_poly_sel_{i}")
+        pm_poly_dbl  = st.checkbox(f"Double Dispense(Polymer)? (Plex {i+1})", value=False, key=f"mp_poly_dbl_{i}")
 
         # opal
-        pm_opal_opts = ["480", "520", "540", "570", "620", "650", "690", "780", "others"]
-        pm_opal_sel  = st.selectbox(f"Opal (Plex {i+1})", pm_opal_opts)
-        pm_opal_dil  = st.number_input(f"Opal Dil Factor (Plex {i+1})", min_value=1.0, value=1000.0)
-        pm_opal_dbl  = st.checkbox(f"Double Dispense (Opal)? (Plex {i+1})", value=False, key=f"mp_p{i}_dblopal")
+        opal_opts = ["480", "520", "540", "570", "620", "650", "690", "780", "others"]
+        pm_opal = st.selectbox(f"Opal (Plex {i+1})", opal_opts, key=f"mp_opal_{i}")
+        pm_opal_dil = st.number_input(f"Opal Dil (Plex {i+1})", min_value=1.0, value=1000.0, key=f"mp_opal_dil_{i}")
+        pm_opal_dbl = st.checkbox(f"Double Dispense(Opal)? (Plex {i+1})", value=False, key=f"mp_opal_dbl_{i}")
 
-        # if opal=780 but plex != last => set warn_780_position = True
-        if pm_opal_sel == "780" and i < (mp_nplex - 1):
+        if pm_opal == "780" and i < (mp_nplex -1):
             warn_780_position = True
 
-        # TSA
+        # TSA for 780
         pm_tsa_used = False
         pm_tsa_dil  = 1000.0
         pm_tsa_dbl  = False
-        if pm_opal_sel == "780":
-            st.write(f"(Plex {i+1}) -> Opal 780 => TSA-DIG possible:")
-            pm_tsa_used = st.checkbox(f"Use TSA-DIG? (Plex {i+1})", value=False)
+        if pm_opal == "780":
+            st.write(f"(Plex {i+1}) => TSA-DIG?")
+            pm_tsa_used = st.checkbox(f"Use TSA-DIG? (Plex {i+1})", key=f"mp_tsa_used_{i}")
             if pm_tsa_used:
-                pm_tsa_dil = st.number_input(f"TSA-DIG Dil (Plex {i+1})", min_value=1.0, value=1000.0)
-                pm_tsa_dbl = st.checkbox(f"Double Dispense (TSA)? (Plex {i+1})", value=False)
+                pm_tsa_dil = st.number_input(f"TSA-DIG Dil (Plex {i+1})", min_value=1.0, value=1000.0, key=f"mp_tsa_dil_{i}")
+                pm_tsa_dbl = st.checkbox(f"Double Dispense(TSA)? (Plex {i+1})", value=False, key=f"mp_tsa_dbl_{i}")
 
-        plex_list.append({
-            "pname": pm_name.strip(),
-            "pdil": pm_dil,
-            "pdbl": pm_dbl,
+        plex_entries.append({
+            "primary_name": pm_name.strip(),
+            "primary_dil": pm_dil,
+            "primary_dbl": pm_dbl,
             "polymer": pm_poly_sel,
             "polymer_dbl": pm_poly_dbl,
-            "opal": pm_opal_sel,
+            "opal": pm_opal,
             "opal_dil": pm_opal_dil,
             "opal_dbl": pm_opal_dbl,
             "tsa_used": pm_tsa_used,
@@ -458,255 +458,236 @@ def multi_plex_flow(dispense_volume, dead_volume):
         })
 
     if st.button("Add Multi-Plex Slide"):
-        # If user tries to put 780 not in last plex => warn and skip
         if warn_780_position:
-            st.error("Opal 780 must be in the last plex. Please fix the plex order or reduce the plex count.")
+            st.error("Opal 780 must be in the last plex. Please fix your plex order or reduce plex count.")
         else:
-            # If user has custom but no name => warn
-            if mp_use_custom and not mp_cname.strip():
-                st.warning("Enter a custom reagent name or uncheck 'Use Custom Reagent'.")
+            # check custom
+            if mp_use_cust and not mp_cname.strip():
+                st.warning("Enter custom reagent name or uncheck 'Use Custom'.")
             else:
-                slide_info = {
+                mp_slide = {
                     "h2o2": mp_h2o2,
                     "pb_before": mp_pb_before,
                     "pb_after": mp_pb_after,
-                    "negctrl": mp_neg,
+                    "neg": mp_neg,
                     "use_dapi": mp_use_dapi,
                     "dapi_dil": mp_dapi_dil,
                     "dapi_dbl": mp_dapi_dbl,
-                    "use_custom": mp_use_custom,
-                    "custom_name": mp_cname.strip(),
-                    "custom_dil": mp_cdil,
-                    "custom_double": mp_cdb,
-                    "custom_diluent": mp_cddi.strip(),
-                    "vectaplex_used": mp_vectaplex_used,
-                    "vectaplex_double": mp_vectaplex_double,
-                    "plex_list": plex_list
+                    "use_custom": mp_use_cust,
+                    "cust_name": mp_cname.strip(),
+                    "cust_dil": mp_cdil,
+                    "cust_dbl": mp_cdbl,
+                    "cust_dilu": mp_cdilu.strip(),
+                    "vectaplex": mp_vectaplex,
+                    "vectaplex_dbl": mp_vect_dbl,
+                    "plex_list": plex_entries
                 }
-                st.session_state["mp_slides"].append(slide_info)
+                st.session_state["mp_slides"].append(mp_slide)
                 st.success("Multi-Plex Slide added.")
 
-    # show current multi-plex slides
+    # Show existing multi-plex slides + remove button
     st.write("#### Current Multi-Plex Slides")
-    if "mp_slides" in st.session_state and st.session_state["mp_slides"]:
-        for idx, sl in enumerate(st.session_state["mp_slides"]):
-            st.write(f"Slide #{idx+1}: #plex={len(sl['plex_list'])}, vectaplex={sl['vectaplex_used']}, PB_before={sl['pb_before']}, PB_after={sl['pb_after']}")
-    else:
-        st.write("No multi-plex slides yet.")
+    for idx, sld in enumerate(st.session_state["mp_slides"]):
+        col1, col2 = st.columns([4,1])
+        with col1:
+            st.write(f"Slide #{idx+1}: #plex={len(sld['plex_list'])}, vectaplex={sld['vectaplex']}, PB_before={sld['pb_before']} PB_after={sld['pb_after']}")
+        with col2:
+            if st.button(f"Remove Multi-Plex Slide {idx+1}", key=f"remove_mp_{idx}"):
+                st.session_state["mp_slides"].pop(idx)
+                st.rerun()
 
     if "mp_final_rows" not in st.session_state:
         st.session_state["mp_final_rows"] = []
 
-    def build_multi_plex_table():
-        # We define the final sequence for each slide:
-        #  H2O2
-        #  FOR plex in order:
-        #    if PB_before => PB -> primary -> polymer -> (TSA? => if vectaplex => vectaplex => opal) else => opal
-        #    if PB_after => PB afterwards
-        #  after last plex => if DAPI => DAPI
-        #  if custom => custom
-        #  Done
-        usage_map = defaultdict(list)
-        slide_summaries = []
-
+    def build_mp_table():
         if not st.session_state["mp_slides"]:
             st.warning("No multi-plex slides to compute!")
             return
 
-        for s_index, slide in enumerate(st.session_state["mp_slides"], start=1):
-            seq = []
+        usage_map = defaultdict(list)
+        slide_summaries = []
 
+        # Sequence rules (your new constraints):
+        # - If opal != 780 => opal, then vectaplex (if vectaplex used).
+        # - If opal == 780 => TSA -> vectaplex -> opal.
+        # - PB can be used before each primary if pb_before, after each opal if pb_after.
+        # - Negative control => skip primary
+        # - The code below implements that logic in a single pass.
+
+        for s_idx, slide in enumerate(st.session_state["mp_slides"], start=1):
+            seq = []
             # H2O2
             if slide["h2o2"]:
-                usage_map[("H2O2", "H2O2", 1.0, False, "")].append(calc_dispense_portion(dispense_volume, False))
+                usage_map[("H2O2","H2O2",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
                 seq.append("H2O2")
 
             # For each plex in order
-            for p_i, plex_info in enumerate(slide["plex_list"], start=1):
-                # If PB before => add PB
+            plexes = slide["plex_list"]
+            for plex_i, plex_info in enumerate(plexes, start=1):
+                # PB before?
                 if slide["pb_before"]:
-                    usage_map[("Protein Block (PB)", "PB", 1.0, False, "")].append(calc_dispense_portion(dispense_volume, False))
+                    usage_map[("Protein Block (PB)","PB",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
                     seq.append("PB(before)")
 
-                # if negctrl => skip primary
-                if not slide["negctrl"]:
-                    # add primary
-                    pname = plex_info["pname"] or f"Primary(Plex{p_i})"
-                    usage_map[(pname, "Primary", plex_info["pdil"], plex_info["pdbl"], "")].append(
-                        calc_dispense_portion(dispense_volume, plex_info["pdbl"])
+                # negative ctrl => skip primary
+                if not slide["neg"]:
+                    pname = plex_info["primary_name"] or f"(UnnamedPrim{plex_i})"
+                    usage_map[(pname,"Primary", plex_info["primary_dil"], plex_info["primary_dbl"], "")].append(
+                        calc_dispense_portion(dispense_vol, plex_info["primary_dbl"])
                     )
                     seq.append(f"Primary({pname})")
                 else:
-                    seq.append(f"Plex {p_i}: Primary skipped(negctrl)")
+                    seq.append(f"Plex {plex_i}: Primary(skipped - neg)")
 
                 # polymer
-                poly_name = f"Polymer-{plex_info['polymer']}"
-                usage_map[(poly_name, "Polymer", 1.0, plex_info["polymer_dbl"], "")].append(
-                    calc_dispense_portion(dispense_volume, plex_info["polymer_dbl"])
+                polymer_name = f"Polymer-{plex_info['polymer']}"
+                usage_map[(polymer_name, "Polymer", 1.0, plex_info["polymer_dbl"], "")].append(
+                    calc_dispense_portion(dispense_vol, plex_info["polymer_dbl"])
                 )
-                seq.append(poly_name)
+                seq.append(polymer_name)
 
-                # TSA? => if plex uses TSA, add it
-                if plex_info["tsa_used"]:
-                    usage_map[("TSA-DIG", "TSA-DIG", plex_info["tsa_dil"], plex_info["tsa_dbl"], "")].append(
-                        calc_dispense_portion(dispense_volume, plex_info["tsa_dbl"])
+                # If opal=780 => we do: TSA -> vectaplex? -> opal
+                if plex_info["opal"] == "780":
+                    if plex_info["tsa_used"]:
+                        usage_map[("TSA-DIG","TSA-DIG", plex_info["tsa_dil"], plex_info["tsa_dbl"], "")].append(
+                            calc_dispense_portion(dispense_vol, plex_info["tsa_dbl"])
+                        )
+                        seq.append("TSA-DIG")
+
+                    if slide["vectaplex"]:
+                        # vectaplex after TSA but before opal
+                        usage_map[("Vectaplex", "Vectaplex", 1.0, slide["vectaplex_dbl"], "")].append(
+                            calc_dispense_portion(dispense_vol, slide["vectaplex_dbl"])
+                        )
+                        seq.append("Vectaplex")
+
+                    # now opal
+                    op_name = f"Opal-{plex_info['opal']}"
+                    usage_map[(op_name,"Opal", plex_info["opal_dil"], plex_info["opal_dbl"], "")].append(
+                        calc_dispense_portion(dispense_vol, plex_info["opal_dbl"])
                     )
-                    seq.append("TSA-DIG")
+                    seq.append(op_name)
 
-                # If vectaplex is used => add it before opal, possibly double
-                if slide["vectaplex_used"]:
-                    usage_map[("Vectaplex", "Vectaplex", 1.0, slide["vectaplex_double"], "")].append(
-                        calc_dispense_portion(dispense_volume, slide["vectaplex_double"])
+                else:
+                    # if opal != 780 => opal => then vectaplex
+                    op_name = f"Opal-{plex_info['opal']}"
+                    usage_map[(op_name,"Opal", plex_info["opal_dil"], plex_info["opal_dbl"], "")].append(
+                        calc_dispense_portion(dispense_vol, plex_info["opal_dbl"])
                     )
-                    seq.append("Vectaplex")
+                    seq.append(op_name)
 
-                # Now the opal
-                op_name = f"Opal-{plex_info['opal']}"
-                usage_map[(op_name, "Opal", plex_info["opal_dil"], plex_info["opal_dbl"], "")].append(
-                    calc_dispense_portion(dispense_volume, plex_info["opal_dbl"])
-                )
-                seq.append(op_name)
+                    if slide["vectaplex"]:
+                        usage_map[("Vectaplex","Vectaplex",1.0, slide["vectaplex_dbl"], "")].append(
+                            calc_dispense_portion(dispense_vol, slide["vectaplex_dbl"])
+                        )
+                        seq.append("Vectaplex")
 
-                # If PB after => add PB
+                # PB after?
                 if slide["pb_after"]:
-                    usage_map[("Protein Block (PB)", "PB", 1.0, False, "")].append(calc_dispense_portion(dispense_volume, False))
+                    usage_map[("Protein Block (PB)","PB",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
                     seq.append("PB(after)")
 
-            # after all plexes: if DAPI => add
+            # after all plexes => DAPI if used
             if slide["use_dapi"]:
-                usage_map[("DAPI", "DAPI", slide["dapi_dil"], slide["dapi_dbl"], "")].append(
-                    calc_dispense_portion(dispense_volume, slide["dapi_dbl"])
+                usage_map[("DAPI","DAPI", slide["dapi_dil"], slide["dapi_dbl"], "")].append(
+                    calc_dispense_portion(dispense_vol, slide["dapi_dbl"])
                 )
                 seq.append("DAPI")
 
             # custom
             if slide["use_custom"]:
-                c_name = slide["custom_name"]
-                c_dil  = slide["custom_dil"]
-                c_db   = slide["custom_double"]
-                c_dilu = slide["custom_diluent"]
-                usage_map[(c_name, "Custom", c_dil, c_db, c_dilu)].append(
-                    calc_dispense_portion(dispense_volume, c_db)
+                cname = slide["cust_name"]
+                cdil  = slide["cust_dil"]
+                cdbl  = slide["cust_dbl"]
+                cdilu = slide["cust_dilu"]
+                usage_map[(cname,"Custom", cdil, cdbl, cdilu)].append(
+                    calc_dispense_portion(dispense_vol, cdbl)
                 )
-                seq.append(f"Custom({c_name})")
+                seq.append(f"Custom({cname})")
 
-            slide_summaries.append({"Multi-Plex Slide": s_index, "Sequence": " → ".join(seq)})
+            # done one slide
+            slide_summaries.append({"Multi-Plex Slide": s_idx, "Sequence": " → ".join(seq)})
 
-        # show summary
         st.subheader("Multi-Plex Slide Summary")
         st.table(slide_summaries)
 
         # unify usage
         final_rows = []
         for (name, rtype, dil, dbl, cdilu), portions in usage_map.items():
-            sum_portions = sum(portions)
-            total_vol = dead_volume + sum_portions
-            stock_vol = total_vol / dil
-            rowwarn   = check_volume_warning(total_vol)
-
+            sums = sum(portions)
+            totv = dead_vol + sums
+            stck = totv / dil
+            w = check_volume_warning(totv)
             if rtype == "Custom":
-                final_diluent = cdilu
+                dd = cdilu
             else:
-                final_diluent = choose_diluent(rtype)
+                dd = choose_diluent(rtype)
 
-            row = {
+            final_rows.append({
                 "Reagent": name,
                 "Type": rtype,
                 "Dilution Factor": format_number(dil),
                 "Double Disp?": "Yes" if dbl else "No",
-                "Diluent": final_diluent,
-                "Total Volume (µL)": format_number(total_vol),
-                "Stock Volume (µL)": format_number(stock_vol),
-                "Warning": rowwarn,
-                "base_dispense_portion": sum_portions,
-            }
-            final_rows.append(row)
-
+                "Diluent": dd,
+                "Total Volume (µL)": format_number(totv),
+                "Stock Volume (µL)": format_number(stck),
+                "Warning": w,
+                "base_dispense_portion": sums,
+            })
         st.session_state["mp_final_rows"] = final_rows
 
     if st.button("Compute Multi-Plex Table"):
-        build_multi_plex_table()
-        st.success("Multi-Plex Table built! Scroll down to see results.")
+        build_mp_table()
+        st.success("Multi-Plex table built! Scroll down.")
 
-    # show & handle splitting
-    if "mp_final_rows" in st.session_state and st.session_state["mp_final_rows"]:
-        mp_fr = st.session_state["mp_final_rows"]
-        st.subheader("Multi-Plex Table (Before Splitting)")
-        df = pd.DataFrame(mp_fr)
+    # 2) Show final + splitting only if needed
+    if st.session_state["mp_final_rows"]:
+        mp_final = st.session_state["mp_final_rows"]
+        any_over_5000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in mp_final)
+        if not any_over_5000:
+            st.subheader("Multi-Plex Final Table (No Splitting Needed)")
+            df = pd.DataFrame(mp_final)
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.subheader("Multi-Plex Table (Potential Splitting Needed)")
+            df = pd.DataFrame(mp_final)
+            st.dataframe(df, use_container_width=True)
 
-        def highlight_mplex(row):
-            try:
-                vol = float(row["Total Volume (µL)"])
-            except:
-                vol = 0
-            if vol > 6000:
-                return ["background-color: #ffcccc"] * len(row)
-            elif vol > 5000:
-                return ["background-color: #ffffcc"] * len(row)
-            else:
-                return [""] * len(row)
-        sty = df.style.apply(highlight_mplex, axis=1)
-        st.dataframe(sty, use_container_width=True)
-
-        # splitting
-        overidx = df.index[df["Warning"].isin(["Consider splitting!", "EXCEEDS 6000 µL limit!"])].tolist()
-        if overidx:
-            st.write("Some multi-plex rows exceed 5000. Split them?")
-            if st.button("Split Multi-Plex Rows >5000"):
-                newlist = []
-                for i, row_ in enumerate(mp_fr):
-                    if i in overidx:
-                        splitted = split_row(row_, max_allowed=5000, dead_vol=dead_volume)
-                        newlist.extend(splitted)
+            if st.button("Split Multi-Plex Rows >5000?"):
+                new_list = []
+                for row_ in mp_final:
+                    if row_["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"]:
+                        splitted = split_row(row_, max_allowed=5000, dead_vol=dead_vol)
+                        new_list.extend(splitted)
                     else:
-                        newlist.append(row_)
-                st.session_state["mp_final_rows"] = newlist
-                st.success("Splitting done for multi-plex. Scroll down.")
+                        new_list.append(row_)
+                st.session_state["mp_final_rows"] = new_list
+                st.success("Splitting done for Multi-Plex. Scroll further.")
                 st.stop()
 
-        # after splitting
-        mp_fr2 = st.session_state["mp_final_rows"]
-        st.subheader("Multi-Plex Table (After Splitting)")
-        df2 = pd.DataFrame(mp_fr2)
-        def highlight_mplex2(row):
-            try:
-                vol = float(row["Total Volume (µL)"])
-            except:
-                vol = 0
-            if vol > 6000:
-                return ["background-color: #ffcccc"] * len(row)
-            elif vol > 5000:
-                return ["background-color: #ffffcc"] * len(row)
-            else:
-                return [""] * len(row)
-        sty2 = df2.style.apply(highlight_mplex2, axis=1)
-        st.dataframe(sty2, use_container_width=True)
-        if len(mp_fr2) > 29:
-            st.error(f"WARNING: {len(mp_fr2)} pots total, exceeding 29 limit!")
-
-
 ###############################################################################
-# Main App
+# MAIN MENU
 ###############################################################################
 
 def main_app():
-    st.title("Combined Single-Plex / Multi-Plex With New Sequence Logic")
+    st.title("Combined Single-Plex / Multi-Plex with Updated Vectaplex & Sequence Logic")
 
+    # GLOBAL SETTINGS
     st.header("Global Settings")
     disp_vol = st.number_input("Dispense Volume (µL)", min_value=1, max_value=9999, value=150)
     dead_vol = st.number_input("Dead Volume (µL)", min_value=0, max_value=9999, value=150)
     st.write("---")
 
-    choice = st.radio("Choose mode:", ["Single-Plex", "Multi-Plex"])
+    # SINGLE vs MULTI
+    choice = st.radio("Choose Flow:", ["Single-Plex","Multi-Plex"])
 
-    if choice == "Single-Plex":
+    if choice=="Single-Plex":
         single_plex_flow(disp_vol, dead_vol)
     else:
         multi_plex_flow(disp_vol, dead_vol)
 
-
 def main():
     main_app()
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
