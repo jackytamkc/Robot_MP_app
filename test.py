@@ -19,7 +19,7 @@ def check_volume_warning(volume: float) -> str:
       otherwise => ""
     """
     if volume > 6000:
-        return "EXCEEDS 6000 µL limit!!"
+        return "EXCEEDS 6000 µL limit!"
     elif volume > 5000:
         return "Consider splitting!"
     return ""
