@@ -19,7 +19,7 @@ def check_volume_warning(volume: float) -> str:
       otherwise => ""
     """
     if volume > 6000:
-        return "EXCEEDS 6000 µL limit! You can consider using big pot, currently not supported by this calculating bot"
+        return "EXCEEDS 6000 µL limit!"
     elif volume > 5000:
         return "Consider splitting!"
     return ""
