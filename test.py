@@ -123,7 +123,7 @@ def single_plex_flow(dispense_vol, dead_vol):
 
     sp_h2o2 = st.checkbox("Use H2O2? (Single-Plex)", value=True)
     sp_pb   = st.checkbox("Use Protein Block? (Single-Plex)", value=True)
-    sp_neg  = st.checkbox("Negative Control? (skip primary)", value=False)
+    sp_neg  = st.checkbox("Is this slide a Negative Control? (all primary will be skipped)", value=False)
 
     # Primary
     sp_prim_name = st.text_input("Primary Name (Single-Plex)", "")
@@ -406,7 +406,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
     mp_h2o2 = st.checkbox("Use H2O2? (Multi-Plex)", value=True)
     mp_pb_before = st.checkbox("Use PB before each primary?", value=True)
     mp_pb_after  = st.checkbox("Use PB after each opal?", value=False)
-    mp_neg = st.checkbox("Negative Control? (skip primary for each plex)", value=False)
+    mp_neg = st.checkbox("Is this slide a Negative Control? (all primary will be skipped)", value=False)
 
     # DAPI
     mp_use_dapi = st.checkbox("Use DAPI? (Multi-Plex)", value=False)
