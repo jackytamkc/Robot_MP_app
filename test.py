@@ -1,101 +1,94 @@
 import streamlit as st
 
-# Example: Minimal data extracted from your sheet
-REAGENTS = {
-    "PDGFRB": {
-        "initial_stock": 300,  # e.g. the volume you have in the 'Open 1' row
-        "dilution": 1.5,
-        "dead_volume": 150,  # from your note that dead volume is 150uL
-        "type": "Primary"
-    },
-    "COL1": {
-        "initial_stock": 300,
-        "dilution": 0.75,
-        "dead_volume": 150,
-        "type": "Primary"
-    },
-    "IGG1": {
-        "initial_stock": 300,
-        "dilution": 0.75,
-        "dead_volume": 150,
-        "type": "Primary"
-    },
-    # ...
-    "Opal 480": {
-        "initial_stock": 450,
-        "dilution": 0.45,
-        "dead_volume": 150,
-        "type": "Opal"
-    },
-    # ...
-    "TSA-DIG": {
-        "initial_stock": 450,
-        "dilution": 4.5,
-        "dead_volume": 150,
-        "type": "Amplifier"
-    },
-    "DAPI": {
-        "initial_stock": 450,
-        "dilution": 9,
-        "dead_volume": 150,
-        "type": "DAPI"
-    },
-    # ...
-}
-
 
 def compute_volume_needed(num_test_slides, num_neg_controls, reagent_info):
-    """
-    Returns the volume needed (in µL) for a single reagent 
-    based on the number of test slides and negative controls.
-    """
-    # If reagent is a "Primary", do NOT apply it to negative controls
-    if reagent_info["type"] == "Primary":
-        total_slides = num_test_slides  # ignore negative controls for primaries
+    """Compute volume needed (in µL) for a single reagent."""
+    # For demonstration, I'm still using the same logic,
+    # but you can refine it.
+    if reagent_info["type"].lower() == "primary":
+        # Negative controls don't get primary
+        total_slides = num_test_slides
     else:
         total_slides = num_test_slides + num_neg_controls
 
-    # Suppose we just multiply (slides * dilution) + dead volume
-    # This is just an example: adapt it to your real calculations.
     base_volume = total_slides * reagent_info["dilution"]
 
-    # Check if we need a double dispensing (Opal or DAPI)
-    # If so, multiply by 2
-    if reagent_info["type"] in ["Opal", "DAPI"]:
+    # Double dispensing if "Opal" or "DAPI"
+    if reagent_info["type"].lower() in ["opal", "dapi"]:
         base_volume *= 2
 
-    # Add dead volume
     total_volume = base_volume + reagent_info["dead_volume"]
-
     return total_volume
 
 
 def main():
     st.title("Robot Multiplex Preparation Calculator")
-    st.write("Enter the parameters below to compute reagent volumes:")
 
-    # 2) Get user inputs
+    # Initialize session state to hold reagent data
+    if "reagents" not in st.session_state:
+        st.session_state["reagents"] = []
+
+    st.subheader("Step 1: Add/Manage Reagents")
+
+    # A form for adding reagent details
+    with st.form("add_reagent_form", clear_on_submit=True):
+        # Each input corresponds to a column in your table
+        reagent_name = st.text_input("Reagent Name", "")
+        reagent_type = st.selectbox(
+            "Reagent Type",
+            ["Primary", "Opal", "DAPI", "Amplifier", "Secondary", "Polymer", "Others"]
+        )
+        initial_stock = st.number_input("Initial Stock (µL)", min_value=0, value=300)
+        dilution = st.number_input("Dilution Factor", min_value=0.0, value=1.0, step=0.1)
+        dead_volume = st.number_input("Dead Volume (µL)", min_value=0, value=150)
+
+        submit_button = st.form_submit_button("Add Reagent")
+
+    # If user clicked the "Add Reagent" button
+    if submit_button:
+        # Append a dict of reagent info to session_state
+        st.session_state["reagents"].append(
+            {
+                "name": reagent_name,
+                "type": reagent_type,
+                "initial_stock": initial_stock,
+                "dilution": dilution,
+                "dead_volume": dead_volume
+            }
+        )
+        st.success(f"Added reagent: {reagent_name}")
+
+    # Display the table of all added reagents
+    if st.session_state["reagents"]:
+        st.table(st.session_state["reagents"])
+    else:
+        st.write("No reagents added yet.")
+
+    # Next, get the main experimental parameters
+    st.subheader("Step 2: Experimental Setup")
     num_plex = st.number_input("Number of Plex?", min_value=1, max_value=8, value=1)
     num_test_slides = st.number_input("Number of Test Slides?", min_value=0, value=8)
     num_neg_controls = st.number_input("Number of Negative Controls?", min_value=0, value=0)
 
-    # 3) Button to compute
-    if st.button("Compute Volumes"):
-        results = []
+    # Button to compute volumes for all reagents
+    if st.button("Compute Required Volumes"):
+        if not st.session_state["reagents"]:
+            st.warning("Please add at least one reagent before computing!")
+        else:
+            results = []
+            for reagent in st.session_state["reagents"]:
+                needed_volume = compute_volume_needed(num_test_slides, num_neg_controls, reagent)
+                results.append(
+                    {
+                        "Reagent": reagent["name"],
+                        "Type": reagent["type"],
+                        "Volume Needed (µL)": round(needed_volume, 2),
+                        "Initial Stock (µL)": reagent["initial_stock"]
+                    }
+                )
 
-        for reagent_name, reagent_info in REAGENTS.items():
-            needed_volume = compute_volume_needed(num_test_slides, num_neg_controls, reagent_info)
-            results.append(
-                {
-                    "Reagent": reagent_name,
-                    "Type": reagent_info["type"],
-                    "Volume Needed (µL)": round(needed_volume, 2),
-                }
-            )
-
-        # 4) Show results
-        st.subheader("Calculated Volumes")
-        st.table(results)
+            st.subheader("Calculated Volumes")
+            st.table(results)
 
 
 if __name__ == "__main__":
