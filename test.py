@@ -280,7 +280,7 @@ def single_plex_app():
             with colB:
                 if st.button(f"Remove Slide {idx+1}", key=f"remove_slide_{idx}"):
                     st.session_state["slides"].pop(idx)
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.write("No slides added yet.")
 
@@ -457,7 +457,7 @@ def single_plex_app():
                 # update final_rows
                 st.session_state["final_rows"] = new_list
                 st.success("Splitting performed. See updated table below.")
-                st.experimental_rerun()
+                st.rerun()
 
         # Show updated table after splitting
         final_rows_updated = st.session_state["final_rows"]
