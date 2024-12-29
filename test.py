@@ -289,11 +289,8 @@ def single_plex_app():
     # -------------------------------------------------------------------------
     # 4) Generate Final Tables (Reagent Table + Slide Summary)
     # -------------------------------------------------------------------------
-    if st.button("Generate Final Tables"):
-        slides = st.session_state["slides"]
-        if not slides:
-            st.warning("No slides to generate!")
-            return
+    if "final_rows" not in st.session_state:
+        st.session_state["final_rows"] = []
 
     def build_final_table():
         """
