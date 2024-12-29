@@ -19,7 +19,7 @@ def check_volume_warning(volume: float) -> str:
       otherwise => ""
     """
     if volume > 6000:
-        return "EXCEEDS 6000 µL limit!"
+        return "EXCEEDS 6000 µL limit! You can consider using big pot, currently not supported by this calculating bot"
     elif volume > 5000:
         return "Consider splitting!"
     return ""
@@ -127,7 +127,7 @@ def single_plex_flow(dispense_vol, dead_vol):
 
     # Primary
     sp_prim_name = st.text_input("Primary Name (Single-Plex)", "")
-    sp_prim_dil  = st.number_input("Primary Dil (Single-Plex)", min_value=1.0, value=1000.0)
+    sp_prim_dil  = st.number_input("Primary Dilution Fold (Single-Plex)", min_value=1.0, value=1000.0)
     sp_prim_dbl  = st.checkbox("Double Dispense (Primary)?", value=False)
 
     # Polymer
@@ -138,7 +138,7 @@ def single_plex_flow(dispense_vol, dead_vol):
     # Opal
     opal_opts = ["480","520","540","570","620","650","690","780","others"]
     sp_opal   = st.selectbox("Opal (Single-Plex)", opal_opts)
-    sp_opal_dil = st.number_input("Opal Dil (Single-Plex)", min_value=1.0, value=1000.0)
+    sp_opal_dil = st.number_input("Opal Dilution Fold (Single-Plex)", min_value=1.0, value=1000.0)
     sp_opal_dbl = st.checkbox("Double Dispense (Opal)?", value=False)
 
     # TSA if 780
@@ -323,7 +323,7 @@ def single_plex_flow(dispense_vol, dead_vol):
         # pot-limit check (before splitting)
         row_count = len(sp_final)
         if row_count>29:
-            st.error(f"WARNING: You have {row_count} total pots (rows), exceeding the 29-pot limit (before splitting)!")
+            st.error(f"WARNING: You have {row_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
 
         # check if any row > 5000
         any_over_5000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in sp_final)
@@ -373,7 +373,7 @@ def single_plex_flow(dispense_vol, dead_vol):
                 # pot-limit check (after splitting)
                 after_split_count = len(new_list)
                 if after_split_count>29:
-                    st.error(f"WARNING: You have {after_split_count} total pots (rows), exceeding the 29-pot limit (after splitting)!")
+                    st.error(f"WARNING: You have {after_split_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
 
                 # show splitted table
                 df2 = pd.DataFrame(st.session_state["sp_final_rows"])
@@ -690,7 +690,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
         # pot-limit check (before splitting)
         row_count = len(mp_final)
         if row_count>29:
-            st.error(f"WARNING: You have {row_count} total pots, exceeding the 29-pot limit (before splitting)!")
+            st.error(f"WARNING: You have {row_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
 
         # check if any row > 5000
         any_over_5000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in mp_final)
@@ -738,7 +738,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
                 # pot-limit check (after splitting)
                 after_split_count = len(new_list)
                 if after_split_count>29:
-                    st.error(f"WARNING: You have {after_split_count} total pots, exceeding the 29-pot limit (after splitting)!")
+                    st.error(f"WARNING: You have {after_split_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
 
                 df2 = pd.DataFrame(st.session_state["mp_final_rows"])
                 def mp_highlight2(row):
@@ -759,7 +759,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
 ###############################################################################
 
 def main_app():
-    st.title("Combined Single-Plex / Multi-Plex App with Vectaplex A&B, No base_dispense_portion, Diluent Volume, Pot-limit, etc.")
+    st.title("BondRX Opal Reagent Prep Bot, Created by Jacky@Ramachandran Lab, V1.0")
 
     # Global Settings
     st.header("Global Settings")
