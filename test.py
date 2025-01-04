@@ -323,10 +323,13 @@ def single_plex_flow(dispense_vol, dead_vol):
             stock_volume= tot_volume / dil
             warn_label  = check_volume_warning(tot_volume)
 
-            if rtype=="Custom":
-                used_diluent = cdilu
+            used_diluent = ""
+            if rtype == "Custom":
+                # if it's custom, pass cdi as the 'custom' string
+                used_diluent = choose_diluent(rtype, reagent_name=name, custom=cdi)
             else:
-                used_diluent = choose_diluent(rtype)
+                # otherwise, just pass rtype and the name (like "Opal-780")
+                used_diluent = choose_diluent(rtype, reagent_name=name)
 
             row_dict = {
                 "Reagent": name,
@@ -688,12 +691,23 @@ def multi_plex_flow(dispense_vol, dead_vol):
         for (name, rtype, dil, dbl, cdi), portions in usage_map.items():
             sum_portions = sum(portions)
             tot_volume = dead_vol + sum_portions
-            stock_vol  = tot_volume / dil
+            stock_vol = tot_volume / dil
             warn_label = check_volume_warning(tot_volume)
-            if rtype=="Custom":
-                used_diluent = cdi
+
+            # << Instead of this: >>
+            # if rtype=="Custom":
+            #     used_diluent = cdi
+            # else:
+            #     used_diluent = choose_diluent(rtype)
+
+            # << Do THIS: pass both rtype and name, plus custom if rtype==Custom >>
+            used_diluent = ""
+            if rtype == "Custom":
+                # if it's custom, pass cdi as the 'custom' string
+                used_diluent = choose_diluent(rtype, reagent_name=name, custom=cdi)
             else:
-                used_diluent = choose_diluent(rtype)
+                # otherwise, just pass rtype and the name (like "Opal-780")
+                used_diluent = choose_diluent(rtype, reagent_name=name)
 
             row_dict = {
                 "Reagent": name,
