@@ -35,24 +35,54 @@ def format_number(num: float) -> str:
     else:
         return f"{num:.4g}"
 
-def choose_diluent(rtype: str, custom: str="") -> str:
+def choose_diluent(
+    rtype: str,
+    reagent_name: str = "",   # <-- new parameter to detect if it's Opal-780
+    custom: str = ""
+) -> str:
     """
     Return default diluent for each reagent type:
       - "H2O2", "PB", "Polymer", "Vectaplex" => ""
-      - "Opal" => "amplifier"
-      - "Primary", "TSA-DIG", "DAPI" => "bondwash/blocker"
-      - "Custom" => custom
+      - "Opal" => "amplifier" (EXCEPT if it's Opal 780 => "bondwash/blocker")
+      - "TSA-DIG" => "amplifier"
+      - "Primary" => "bondwash/blocker"
+      - "DAPI" => "TBS"
+      - "Custom" => use the 'custom' string
+      - else => ""
     """
-    if rtype in ["H2O2","PB","Polymer","Vectaplex"]:
+
+    # 1) H2O2, PB, Polymer, Vectaplex => no diluent
+    if rtype in ["H2O2", "PB", "Polymer", "Vectaplex"]:
         return ""
+
+    # 2) If rtype == "Opal"
+    #    - If reagent_name says "780" => bondwash/blocker
+    #    - Else => amplifier
     elif rtype == "Opal":
+        if "780" in reagent_name:
+            return "bondwash/blocker"
+        else:
+            return "amplifier"
+
+    # 3) TSA-DIG => amplifier
+    elif rtype == "TSA-DIG":
         return "amplifier"
-    elif rtype in ["Primary","TSA-DIG","DAPI"]:
+
+    # 4) Primary => bondwash/blocker
+    elif rtype == "Primary":
         return "bondwash/blocker"
+
+    # 5) DAPI => TBS
+    elif rtype == "DAPI":
+        return "TBS"
+
+    # 6) Custom => user-provided
     elif rtype == "Custom":
         return custom
-    else:
-        return ""
+
+    # 7) Fallback
+    return ""
+
 
 def split_row(row_dict: dict, max_allowed=5000, dead_vol=150) -> list:
     """
