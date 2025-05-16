@@ -20,7 +20,7 @@ def check_volume_warning(volume: float) -> str:
     """
     if volume > 6000:
         return "EXCEEDS 6000 µL limit!"
-    elif volume > 5000:
+    elif volume > 4000:
         return "Consider splitting!"
     return ""
 
@@ -137,6 +137,9 @@ def split_row(row_dict: dict, max_allowed=5000, dead_vol=150) -> list:
         new_rows.append(sub_row)
 
     return new_rows
+
+TYPE_ORDER = ["H2O2", "PB", "Primary", "Polymer", "TSA-DIG", "Opal", "DAPI", "Vectaplex", "Custom"]
+type_rank  = {t:i for i,t in enumerate(TYPE_ORDER)}
 
 ###############################################################################
 # SINGLE-PLEX FLOW
@@ -359,18 +362,24 @@ def single_plex_flow(dispense_vol, dead_vol):
             st.error(f"WARNING: You have {row_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
 
         # check if any row > 5000
-        any_over_5000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in sp_final)
+        any_over_4000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in sp_final)
 
-        if not any_over_5000:
+        if not any_over_4000:
             st.subheader("Single-Plex Final Table (No Splitting Needed)")
             df = pd.DataFrame(sp_final)
+            
+            df.reset_index(drop=True, inplace=True)
+            df.insert(0, "Pot", df.index+1)
+            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
+            df.sort_values(by=["Type_Rank","Pot"], inplace=True)
+            df.drop(columns="Type_Rank", inplace=True)
             # highlight
             def sp_highlight(row):
                 vol_str = row["Total Volume (µL)"]
                 vol = float(vol_str) if vol_str else 0
                 if vol>6000:
                     return ["background-color: #ffcccc"]*len(row)
-                elif vol>5000:
+                elif vol>4000:
                     return ["background-color: #ffffcc"]*len(row)
                 else:
                     return [""]*len(row)
@@ -380,23 +389,29 @@ def single_plex_flow(dispense_vol, dead_vol):
         else:
             st.subheader("Single-Plex Table (Potential Splitting Needed)")
             df = pd.DataFrame(sp_final)
+
+            df.reset_index(drop=True, inplace=True)
+            df.insert(0, "Pot", df.index + 1)
+            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
+            df.sort_values(by=["Type_Rank", "Pot"], inplace=True)
+            df.drop(columns="Type_Rank", inplace=True)
             def sp_highlight(row):
                 vol_str = row["Total Volume (µL)"]
                 vol = float(vol_str) if vol_str else 0
                 if vol>6000:
                     return ["background-color: #ffcccc"]*len(row)
-                elif vol>5000:
+                elif vol>4000:
                     return ["background-color: #ffffcc"]*len(row)
                 else:
                     return [""]*len(row)
             styled_df = df.style.apply(sp_highlight, axis=1)
             st.write(styled_df.to_html(), unsafe_allow_html=True)
 
-            if st.button("Split Single-Plex Rows >5000?"):
+            if st.button("Split Single-Plex Rows >4000?"):
                 new_list = []
                 for row_ in sp_final:
                     if row_["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"]:
-                        splitted = split_row(row_, max_allowed=5000, dead_vol=dead_vol)
+                        splitted = split_row(row_, max_allowed=4000, dead_vol=dead_vol)
                         new_list.extend(splitted)
                     else:
                         new_list.append(row_)
@@ -421,6 +436,32 @@ def single_plex_flow(dispense_vol, dead_vol):
                         return [""]*len(row)
                 styled_df2 = df2.style.apply(sp_highlight2, axis=1)
                 st.write(styled_df2.to_html(), unsafe_allow_html=True)
+
+                csv_bytes = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="⬇️ Download as CSV",
+                    data=csv_bytes,
+                    file_name="final_table_v1.1.csv",
+                    mime="text/csv"
+                )
+
+                import io
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    df.to_excel(writer, index=False, sheet_name="Table")
+                excel_bytes = buffer.getvalue()
+                st.download_button(
+                    label="⬇️ Download as Excel",
+                    data=excel_bytes,
+                    file_name="final_table_v1.1.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+                # 3) Print button
+                st.markdown(
+                    "<button onclick='window.print()' style='padding:8px; font-size:16px;'>🖨 Print Table</button>",
+                    unsafe_allow_html=True
+                )
 
 
 ###############################################################################
@@ -742,6 +783,12 @@ def multi_plex_flow(dispense_vol, dead_vol):
             st.subheader("Multi-Plex Final Table (No Splitting Needed)")
             df = pd.DataFrame(mp_final)
 
+            df.reset_index(drop=True, inplace=True)
+            df.insert(0, "Pot", df.index + 1)
+            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
+            df.sort_values(by=["Type_Rank", "Pot"], inplace=True)
+            df.drop(columns="Type_Rank", inplace=True)
+
             def mp_highlight(row):
                 vol_str = row["Total Volume (µL)"]
                 vol = float(vol_str) if vol_str else 0
@@ -756,6 +803,13 @@ def multi_plex_flow(dispense_vol, dead_vol):
         else:
             st.subheader("Multi-Plex Table (Potential Splitting Needed)")
             df = pd.DataFrame(mp_final)
+
+            df.reset_index(drop=True, inplace=True)
+            df.insert(0, "Pot", df.index + 1)
+            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
+            df.sort_values(by=["Type_Rank", "Pot"], inplace=True)
+            df.drop(columns="Type_Rank", inplace=True)
+            
             def mp_highlight(row):
                 vol_str = row["Total Volume (µL)"]
                 vol = float(vol_str) if vol_str else 0
@@ -796,6 +850,32 @@ def multi_plex_flow(dispense_vol, dead_vol):
                         return [""]*len(row)
                 styled_df2 = df2.style.apply(mp_highlight2, axis=1)
                 st.write(styled_df2.to_html(), unsafe_allow_html=True)
+
+                csv_bytes = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="⬇️ Download as CSV",
+                    data=csv_bytes,
+                    file_name="final_table_v1.1.csv",
+                    mime="text/csv"
+                )
+
+                import io
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    df.to_excel(writer, index=False, sheet_name="Table")
+                excel_bytes = buffer.getvalue()
+                st.download_button(
+                    label="⬇️ Download as Excel",
+                    data=excel_bytes,
+                    file_name="final_table_v1.1.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+                # 3) Print button
+                st.markdown(
+                    "<button onclick='window.print()' style='padding:8px; font-size:16px;'>🖨 Print Table</button>",
+                    unsafe_allow_html=True
+                )
 
 
 ###############################################################################
