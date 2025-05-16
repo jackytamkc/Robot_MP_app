@@ -883,7 +883,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
 ###############################################################################
 
 def main_app():
-    st.title("BondRX Opal Reagent Prep Bot, Created by Jacky@Ramachandran Lab, V1.0")
+    st.title("BondRX Opal Reagent Prep Bot, Created by Jacky@Ramachandran Lab, V1.1")
 
     # Global Settings
     st.header("Global Settings")
