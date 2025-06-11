@@ -133,7 +133,6 @@ def split_row(row_dict: dict, max_allowed=5000, dead_vol=150) -> list:
         sub_row["Diluent Volume (µL)"] = format_number(pot_total - stock_vol)
         new_warning = check_volume_warning(pot_total)
         sub_row["Warning"] = new_warning
-        sub_row["__base_portion"] = sub_portion
         new_rows.append(sub_row)
 
     return new_rows
@@ -344,7 +343,6 @@ def single_plex_flow(dispense_vol, dead_vol):
                 "Stock Volume (µL)": format_number(stock_volume),
                 "Diluent Volume (µL)": format_number(tot_volume - stock_volume),
                 "Warning": warn_label,
-                "__base_portion": portion_sum,  # for splitting logic only
             }
             final_rows.append(row_dict)
 
