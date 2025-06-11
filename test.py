@@ -848,7 +848,8 @@ def multi_plex_flow(dispense_vol, dead_vol):
                 styled_df2 = df2.style.apply(mp_highlight2, axis=1)
                 st.write(styled_df2.to_html(), unsafe_allow_html=True)
 
-                csv_bytes = df.to_csv(index=False).encode("utf-8")
+            if not styled_df2.empty:
+                csv_bytes = styled_df2.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="⬇️ Download as CSV",
                     data=csv_bytes,
@@ -859,7 +860,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
                 import io
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    df.to_excel(writer, index=False, sheet_name="Table")
+                    styled_df2.to_excel(writer, index=False, sheet_name="Table")
                 excel_bytes = buffer.getvalue()
                 st.download_button(
                     label="⬇️ Download as Excel",
