@@ -2,6 +2,7 @@ import streamlit as st
 from collections import defaultdict
 import pandas as pd
 import math
+import io
 
 ###############################################################################
 # SHARED UTILITIES
@@ -145,322 +146,234 @@ type_rank  = {t:i for i,t in enumerate(TYPE_ORDER)}
 ###############################################################################
 
 def single_plex_flow(dispense_vol, dead_vol):
+    import io
+    from collections import defaultdict
+
     st.write("### Single-Plex Flow")
 
+    # 1) Initialize session state
     if "sp_slides" not in st.session_state:
         st.session_state["sp_slides"] = []
-
-    # 1) Add a single-plex slide
-    st.subheader("Add Single-Plex Slide")
-
-    sp_h2o2 = st.checkbox("Use H2O2? (Single-Plex)", value=True)
-    sp_pb   = st.checkbox("Use Protein Block? (Single-Plex)", value=True)
-    sp_neg  = st.checkbox("Is this slide a Negative Control? (all primary will be skipped)", value=False)
-
-    # Primary
-    sp_prim_name = st.text_input("Primary Name (Single-Plex)", "")
-    sp_prim_dil  = st.number_input("Primary Dilution Fold (Single-Plex)", min_value=1.0, value=1000.0)
-    sp_prim_dbl  = st.checkbox("Double Dispense (Primary)?", value=False)
-
-    # Polymer
-    polymer_opts = ["Rabbit","Sheep","Goat","Mouse","Rat","Others"]
-    sp_poly = st.selectbox("Polymer (Single-Plex)", polymer_opts)
-    sp_poly_dbl = st.checkbox("Double Dispense (Polymer)?", value=False)
-
-    # Opal
-    opal_opts = ["480","520","540","570","620","650","690","780","others"]
-    sp_opal   = st.selectbox("Opal (Single-Plex)", opal_opts)
-    sp_opal_dil = st.number_input("Opal Dilution Fold (Single-Plex)", min_value=1.0, value=1000.0)
-    sp_opal_dbl = st.checkbox("Double Dispense (Opal)?", value=False)
-
-    # TSA if 780
-    sp_tsa_used = False
-    sp_tsa_dil = 1000.0
-    sp_tsa_dbl = False
-    if sp_opal=="780":
-        st.markdown("Opal 780 => TSA-DIG?")
-        sp_tsa_used = st.checkbox("Use TSA-DIG? (Single-Plex)")
-        if sp_tsa_used:
-            sp_tsa_dil = st.number_input("TSA-DIG Dil (Single-Plex)", min_value=1.0, value=1000.0)
-            sp_tsa_dbl = st.checkbox("Double Dispense (TSA)?", value=False)
-
-    # DAPI
-    sp_use_dapi = st.checkbox("Use DAPI? (Single-Plex)", value=False)
-    sp_dapi_dil = 1000.0
-    sp_dapi_dbl = False
-    if sp_use_dapi:
-        sp_dapi_dil = st.number_input("DAPI Dil (Single-Plex)", min_value=1.0, value=1000.0)
-        sp_dapi_dbl = st.checkbox("Double Dispense (DAPI)?", value=False)
-
-    # custom
-    sp_use_cust = st.checkbox("Use Custom Reagent? (Single-Plex)", value=False)
-    sp_cname = ""
-    sp_cdil  = 1.0
-    sp_cdbl  = False
-    sp_cdilu = ""
-    if sp_use_cust:
-        sp_cname = st.text_input("Custom Name (Single-Plex)", "")
-        sp_cdil  = st.number_input("Custom Dil (Single-Plex)", min_value=1.0, value=1000.0)
-        sp_cdbl  = st.checkbox("Double Dispense (Custom)?", value=False)
-        sp_cdilu = st.text_input("Custom Diluent (Single-Plex)", "bondwash/blocker")
-
-    if st.button("Add Single-Plex Slide"):
-        if not sp_neg and not sp_prim_name.strip():
-            st.warning("Provide a primary name or check negative control.")
-        elif sp_use_cust and not sp_cname.strip():
-            st.warning("Provide a custom reagent name or uncheck 'Use Custom'.")
-        else:
-            sdict = {
-                "h2o2": sp_h2o2,
-                "pb": sp_pb,
-                "neg": sp_neg,
-                "prim_name": sp_prim_name.strip(),
-                "prim_dil": sp_prim_dil,
-                "prim_dbl": sp_prim_dbl,
-                "poly": sp_poly,
-                "poly_dbl": sp_poly_dbl,
-                "opal": sp_opal,
-                "opal_dil": sp_opal_dil,
-                "opal_dbl": sp_opal_dbl,
-                "tsa_used": sp_tsa_used,
-                "tsa_dil": sp_tsa_dil,
-                "tsa_dbl": sp_tsa_dbl,
-                "use_dapi": sp_use_dapi,
-                "dapi_dil": sp_dapi_dil,
-                "dapi_dbl": sp_dapi_dbl,
-                "use_custom": sp_use_cust,
-                "cust_name": sp_cname.strip(),
-                "cust_dil": sp_cdil,
-                "cust_dbl": sp_cdbl,
-                "cust_dilu": sp_cdilu.strip(),
-            }
-            st.session_state["sp_slides"].append(sdict)
-            st.success("Single-Plex Slide added.")
-
-    # Remove button
-    st.write("#### Current Single-Plex Slides")
-    for idx, sld in enumerate(st.session_state["sp_slides"]):
-        colA, colB = st.columns([4,1])
-        with colA:
-            st.write(f"Slide #{idx+1}: primary={sld['prim_name']}, opal={sld['opal']}, neg={sld['neg']}")
-        with colB:
-            if st.button(f"Remove Single-Plex Slide {idx+1}", key=f"remove_sp_{idx}"):
-                st.session_state["sp_slides"].pop(idx)
-                st.rerun()
-
     if "sp_final_rows" not in st.session_state:
         st.session_state["sp_final_rows"] = []
+    if "sp_computed" not in st.session_state:
+        st.session_state["sp_computed"] = False
+    if "sp_pot_named" not in st.session_state:
+        st.session_state["sp_pot_named"] = False
+    if "sp_pot_names" not in st.session_state:
+        st.session_state["sp_pot_names"] = {}
 
+    # 2) Add slides UI
+    st.subheader("Add Single-Plex Slide")
+    sp_h2o2 = st.checkbox("Use H2O2?", value=True)
+    sp_pb   = st.checkbox("Use Protein Block?", value=True)
+    sp_neg  = st.checkbox("Negative Control? (skip primary)", value=False)
+
+    sp_pname = st.text_input("Primary Name")
+    sp_pdil  = st.number_input("Primary Dilution Fold", min_value=1.0, value=1000.0)
+    sp_pdbl  = st.checkbox("Double-Dispense (Primary)?", value=False)
+
+    sp_poly, sp_poly_db = st.selectbox("Polymer", ["Rabbit","Sheep","Goat","Mouse","Rat","Others"]), \
+                          st.checkbox("2× Polymer?", value=False)
+
+    sp_opal, sp_odil, sp_odbl = st.selectbox("Opal", ["480","520","540","570","620","650","690","780","others"]), \
+                                st.number_input("Opal Dilution Fold", min_value=1.0, value=1000.0), \
+                                st.checkbox("2× Opal?", value=False)
+
+    sp_tsa = False; sp_tsdil = 1000.0; sp_tsdb = False
+    if sp_opal == "780":
+        sp_tsa = st.checkbox("Use TSA-DIG?")
+        if sp_tsa:
+            sp_tsdil = st.number_input("TSA-DIG Dilution Fold", min_value=1.0, value=1000.0)
+            sp_tsdb  = st.checkbox("2× TSA-DIG?", value=False)
+
+    sp_dapi = st.checkbox("Use DAPI?", value=False)
+    sp_ddil = 1000.0; sp_ddb = False
+    if sp_dapi:
+        sp_ddil = st.number_input("DAPI Dilution Fold", min_value=1.0, value=1000.0)
+        sp_ddb  = st.checkbox("2× DAPI?", value=False)
+
+    sp_use_cust = st.checkbox("Use Custom Reagent?", value=False)
+    sp_cname = ""; sp_cdil=1.0; sp_cdb=False; sp_cdilu=""
+    if sp_use_cust:
+        sp_cname = st.text_input("Custom Name")
+        sp_cdil  = st.number_input("Custom Dilution Fold", min_value=1.0, value=1000.0)
+        sp_cdb   = st.checkbox("2× Custom?", value=False)
+        sp_cdilu = st.text_input("Custom Diluent", "bondwash/blocker")
+
+    if st.button("Add Slide"):
+        if not sp_neg and not sp_pname.strip():
+            st.warning("Enter a primary name or check Negative Control.")
+        elif sp_use_cust and not sp_cname.strip():
+            st.warning("Enter a custom name or uncheck Custom.")
+        else:
+            st.session_state["sp_slides"].append({
+                "H2O2": sp_h2o2, "PB": sp_pb, "Neg": sp_neg,
+                "Primary": (sp_pname.strip(), sp_pdil, sp_pdbl),
+                "Polymer": (sp_poly, sp_poly_db),
+                "Opal":    (sp_opal, sp_odil, sp_odbl),
+                "TSA":     (sp_tsa, sp_tsdil, sp_tsdb),
+                "DAPI":    (sp_dapi, sp_ddil, sp_ddb),
+                "Custom":  (sp_use_cust, sp_cname.strip(), sp_cdil, sp_cdb, sp_cdilu.strip())
+            })
+            st.success("Slide added.")
+
+    # 3) Remove slides
+    st.write("#### Current Slides")
+    for i, sl in enumerate(st.session_state["sp_slides"]):
+        c1, c2 = st.columns([4,1])
+        with c1:
+            st.write(f"Slide #{i+1}: Prim={sl['Primary'][0]}, Opal={sl['Opal'][0]}, Neg={sl['Neg']}")
+        with c2:
+            if st.button(f"Remove {i+1}", key=f"rem_sp_{i}"):
+                st.session_state["sp_slides"].pop(i)
+                st.experimental_rerun()
+
+    # 4) Build final_rows logic
     def build_sp_table():
-        slides_local = st.session_state["sp_slides"]
-        if not slides_local:
-            st.warning("No single-plex slides to compute!")
-            return
-
-        usage_map = defaultdict(list)
-        slide_summ = []
-
-        # Gather usage
-        for i, sld in enumerate(slides_local, start=1):
+        um, summ = defaultdict(list), []
+        for idx, sl in enumerate(st.session_state["sp_slides"], start=1):
             seq = []
-            if sld["h2o2"]:
-                usage_map[("H2O2","H2O2",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
-                seq.append("H2O2")
-            if sld["pb"]:
-                usage_map[("Protein Block (PB)","PB",1.0,False,"")].append(calc_dispense_portion(dispense_vol,False))
-                seq.append("PB")
-            if not sld["neg"]:
-                pname = sld["prim_name"] or "(Unnamed Primary)"
-                usage_map[(pname,"Primary", sld["prim_dil"], sld["prim_dbl"], "")].append(
-                    calc_dispense_portion(dispense_vol, sld["prim_dbl"])
-                )
+            if sl["H2O2"]:
+                um[("H2O2","H2O2",1.0,False,"")].append(calc_dispense_portion(dispense_vol, False)); seq.append("H2O2")
+            if sl["PB"]:
+                um[("PB","PB",1.0,False,"")].append(calc_dispense_portion(dispense_vol, False)); seq.append("PB")
+            # Primary
+            pname, pdil, pdbl = sl["Primary"]
+            if not sl["Neg"]:
+                um[(pname,"Primary",pdil,pdbl,"")].append(calc_dispense_portion(dispense_vol, pdbl))
                 seq.append(f"Primary({pname})")
             else:
-                seq.append("Primary(skipped - Neg)")
-
-            pol_name = f"Polymer-{sld['poly']}"
-            usage_map[(pol_name,"Polymer",1.0,sld["poly_dbl"], "")].append(
-                calc_dispense_portion(dispense_vol, sld["poly_dbl"])
-            )
-            seq.append(pol_name)
-
-            op_name = f"Opal-{sld['opal']}"
-            usage_map[(op_name,"Opal", sld["opal_dil"], sld["opal_dbl"], "")].append(
-                calc_dispense_portion(dispense_vol, sld["opal_dbl"])
-            )
-            seq.append(op_name)
-
-            if sld["tsa_used"]:
-                usage_map[("TSA-DIG","TSA-DIG", sld["tsa_dil"], sld["tsa_dbl"], "")].append(
-                    calc_dispense_portion(dispense_vol, sld["tsa_dbl"])
-                )
+                seq.append("Primary(skipped)")
+            # Polymer
+            poly, poldb = sl["Polymer"]
+            pname2 = f"Polymer-{poly}"
+            um[(pname2,"Polymer",1.0,poldb,"")].append(calc_dispense_portion(dispense_vol, poldb))
+            seq.append(pname2)
+            # Opal
+            op, odil, odbl = sl["Opal"]
+            oname = f"Opal-{op}"
+            um[(oname,"Opal",odil,odbl,"")].append(calc_dispense_portion(dispense_vol, odbl))
+            seq.append(oname)
+            # TSA
+            tsa, tsdil, tsdbl = sl["TSA"]
+            if tsa:
+                um[("TSA-DIG","TSA-DIG",tsdil,tsdbl,"")].append(calc_dispense_portion(dispense_vol, tsdbl))
                 seq.append("TSA-DIG")
-
-            if sld["use_dapi"]:
-                usage_map[("DAPI","DAPI", sld["dapi_dil"], sld["dapi_dbl"], "")].append(
-                    calc_dispense_portion(dispense_vol, sld["dapi_dbl"])
-                )
+            # DAPI
+            dapi, ddil, ddb = sl["DAPI"]
+            if dapi:
+                um[("DAPI","DAPI",ddil,ddb,"")].append(calc_dispense_portion(dispense_vol, ddb))
                 seq.append("DAPI")
+            # Custom
+            usec, cn, cdil2, cdb2, cdilu2 = sl["Custom"]
+            if usec:
+                um[(cn,"Custom",cdil2,cdb2,cdilu2)].append(calc_dispense_portion(dispense_vol, cdb2))
+                seq.append(f"Custom({cn})")
+            summ.append({"Slide": idx, "Sequence": " → ".join(seq)})
 
-            if sld["use_custom"]:
-                cname = sld["cust_name"]
-                cdil  = sld["cust_dil"]
-                cdbl  = sld["cust_dbl"]
-                cdilu = sld["cust_dilu"]
-                usage_map[(cname,"Custom", cdil, cdbl, cdilu)].append(
-                    calc_dispense_portion(dispense_vol, cdbl)
-                )
-                seq.append(f"Custom({cname})")
+        st.subheader("Slide Summary")
+        st.table(summ)
 
-            slide_summ.append({"Slide": i, "Sequence": " → ".join(seq)})
-
-        st.subheader("Single-Plex Slide Summary")
-        st.table(slide_summ)
-
-        # unify usage
-        final_rows = []
-        for (name, rtype, dil, dbl, cdilu), portions in usage_map.items():
-            portion_sum = sum(portions)
-            tot_volume  = dead_vol + portion_sum
-            stock_volume= tot_volume / dil
-            warn_label  = check_volume_warning(tot_volume)
-
-            used_diluent = ""
-            if rtype == "Custom":
-                # if it's custom, pass cdi as the 'custom' string
-                used_diluent = choose_diluent(rtype, reagent_name=name, custom=cdi)
-            else:
-                # otherwise, just pass rtype and the name (like "Opal-780")
-                used_diluent = choose_diluent(rtype, reagent_name=name)
-
-            row_dict = {
+        final = []
+        for (name, rtype, dil, dbl, cdi), pts in um.items():
+            total_pts = sum(pts)
+            tv = dead_vol + total_pts
+            sv = tv / dil
+            wr = check_volume_warning(tv)
+            dilu = cdi if rtype=="Custom" else choose_diluent(rtype, name, cdi)
+            final.append({
                 "Reagent": name,
                 "Type": rtype,
                 "Dilution Factor": format_number(dil),
                 "Double Disp?": "Yes" if dbl else "No",
-                "Diluent": used_diluent,
-                "Total Volume (µL)": format_number(tot_volume),
-                "Stock Volume (µL)": format_number(stock_volume),
-                "Diluent Volume (µL)": format_number(tot_volume - stock_volume),
-                "Warning": warn_label,
-            }
-            final_rows.append(row_dict)
+                "Diluent": dilu,
+                "Total Volume (µL)": format_number(tv),
+                "Stock Volume (µL)": format_number(sv),
+                "Diluent Volume (µL)": format_number(tv - sv),
+                "Warning": wr,
+                "_base_portion": total_pts
+            })
+        st.session_state["sp_final_rows"] = final
 
-        st.session_state["sp_final_rows"] = final_rows
-
+    # 5) Compute button
     if st.button("Compute Single-Plex Table"):
         build_sp_table()
-        st.success("Single-Plex table built! Scroll down.")
+        st.session_state["sp_computed"] = True
+        st.session_state["sp_pot_named"] = False
+        st.success("Computed—now name your pots.")
 
-    sp_final = st.session_state.get("sp_final_rows", [])
-    if sp_final:
-        # pot-limit check (before splitting)
-        row_count = len(sp_final)
-        if row_count>29:
-            st.error(f"WARNING: You have {row_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
-
-        # check if any row > 5000
-        any_over_4000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in sp_final)
-
-        if not any_over_4000:
-            st.subheader("Single-Plex Final Table (No Splitting Needed)")
-            df = pd.DataFrame(sp_final)
-            
-            df.reset_index(drop=True, inplace=True)
-            df.insert(0, "Pot", df.index+1)
-            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
-            df.sort_values(by=["Type_Rank","Pot"], inplace=True)
-            df.drop(columns="Type_Rank", inplace=True)
-            # highlight
-            def sp_highlight(row):
-                vol_str = row["Total Volume (µL)"]
-                vol = float(vol_str) if vol_str else 0
-                if vol>6000:
-                    return ["background-color: #ffcccc"]*len(row)
-                elif vol>4000:
-                    return ["background-color: #ffffcc"]*len(row)
-                else:
-                    return [""]*len(row)
-            styled_df = df.style.apply(sp_highlight, axis=1)
-            st.write(styled_df.to_html(), unsafe_allow_html=True)
-
-        else:
-            st.subheader("Single-Plex Table (Potential Splitting Needed)")
-            df = pd.DataFrame(sp_final)
-
-            df.reset_index(drop=True, inplace=True)
-            df.insert(0, "Pot", df.index + 1)
-            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
-            df.sort_values(by=["Type_Rank", "Pot"], inplace=True)
-            df.drop(columns="Type_Rank", inplace=True)
-            def sp_highlight(row):
-                vol_str = row["Total Volume (µL)"]
-                vol = float(vol_str) if vol_str else 0
-                if vol>6000:
-                    return ["background-color: #ffcccc"]*len(row)
-                elif vol>4000:
-                    return ["background-color: #ffffcc"]*len(row)
-                else:
-                    return [""]*len(row)
-            styled_df = df.style.apply(sp_highlight, axis=1)
-            st.write(styled_df.to_html(), unsafe_allow_html=True)
-
-            if st.button("Split Single-Plex Rows >4000?"):
-                new_list = []
-                for row_ in sp_final:
-                    if row_["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"]:
-                        splitted = split_row(row_, max_allowed=4000, dead_vol=dead_vol)
-                        new_list.extend(splitted)
-                    else:
-                        new_list.append(row_)
-                st.session_state["sp_final_rows"] = new_list
-                st.success("Splitting done for Single-Plex. Updated table below.")
-
-                # pot-limit check (after splitting)
-                after_split_count = len(new_list)
-                if after_split_count>29:
-                    st.error(f"WARNING: You have {after_split_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
-
-                # show splitted table
-                df2 = pd.DataFrame(st.session_state["sp_final_rows"])
-                def sp_highlight2(row):
-                    vol_str = row["Total Volume (µL)"]
-                    vol = float(vol_str) if vol_str else 0
-                    if vol>6000:
-                        return ["background-color: #ffcccc"]*len(row)
-                    elif vol>5000:
-                        return ["background-color: #ffffcc"]*len(row)
-                    else:
-                        return [""]*len(row)
-                styled_df2 = df2.style.apply(sp_highlight2, axis=1)
-                st.write(styled_df2.to_html(), unsafe_allow_html=True)
-
-                csv_bytes = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="⬇️ Download as CSV",
-                    data=csv_bytes,
-                    file_name="final_table_v1.1.csv",
-                    mime="text/csv"
+    # 6) Pot naming form
+    if st.session_state.get("sp_computed") and not st.session_state.get("sp_pot_named"):
+        st.subheader("Name Your Pots")
+        with st.form("sp_pot_form"):
+            if not st.session_state["sp_pot_names"]:
+                st.session_state["sp_pot_names"] = {
+                    r["Reagent"]: r["Reagent"]
+                    for r in st.session_state["sp_final_rows"]
+                }
+            for reagent in st.session_state["sp_pot_names"]:
+                key = f"sp_pot_{reagent}"
+                st.session_state["sp_pot_names"][reagent] = st.text_input(
+                    label=reagent,
+                    value=st.session_state["sp_pot_names"][reagent],
+                    key=key
                 )
+            if st.form_submit_button("Save Pot Names"):
+                st.session_state["sp_pot_named"] = True
+                st.success("Pot names saved—scroll down for your table.")
+        return  # wait until naming is done
 
-                import io
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    df.to_excel(writer, index=False, sheet_name="Table")
-                excel_bytes = buffer.getvalue()
-                st.download_button(
-                    label="⬇️ Download as Excel",
-                    data=excel_bytes,
-                    file_name="final_table_v1.1.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+    # 7) Display final table & exports
+    if st.session_state.get("sp_computed") and st.session_state.get("sp_pot_named"):
+        fr = st.session_state["sp_final_rows"]
+        df = pd.DataFrame(fr).drop(columns=["_base_portion"], errors="ignore")
 
-                # 3) Print button
-                st.markdown(
-                    "<button onclick='window.print()' style='padding:8px; font-size:16px;'>🖨 Print Table</button>",
-                    unsafe_allow_html=True
-                )
+        # Insert Pot Name column
+        pot_names = st.session_state["sp_pot_names"]
+        df.insert(0, "Pot Name", df["Reagent"].map(pot_names))
 
+        # Group & sort
+        TYPE_ORDER = ["H2O2","PB","Primary","Polymer","TSA-DIG","Opal","DAPI","Vectaplex","Custom"]
+        rank = {t: i for i,t in enumerate(TYPE_ORDER)}
+        df["__rk"] = df["Type"].map(lambda x: rank.get(x,9999))
+        df.sort_values(by=["__rk","Pot Name"], inplace=True)
+        df.drop(columns="__rk", inplace=True)
+
+        # 29-pot limit
+        if len(df) > 29:
+            st.error(f"WARNING: {len(df)} total pots—exceeds 29-pot limit!")
+
+        # Highlight
+        def hl(row):
+            v = float(row["Total Volume (µL)"])
+            if v>6000: return ["background-color:#ffcccc"]*len(row)
+            if v>4000: return ["background-color:#ffffcc"]*len(row)
+            return [""]*len(row)
+
+        st.subheader("Final Single-Plex Table")
+        st.write(df.style.apply(hl,axis=1).to_html(), unsafe_allow_html=True)
+
+        # Exports & Print
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download CSV", csv_bytes, "single_v1.1.csv", "text/csv")
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf,engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="SinglePlex")
+        st.download_button("⬇️ Download Excel", buf.getvalue(),
+                           "single_v1.1.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        st.markdown(
+            "<button onclick='window.print()' style='padding:8px;font-size:16px;'>🖨 Print Table</button>",
+            unsafe_allow_html=True
+        )
+
+        # Sequence Guide
+        guide_seq = " → ".join(df["Pot Name"])
+        st.subheader("Sequence Guide")
+        st.write(f"Slide 1: {guide_seq}")
 
 ###############################################################################
 # MULTI-PLEX FLOW
@@ -513,7 +426,7 @@ def multi_plex_flow(dispense_vol, dead_vol):
     warn_780_position = False
     warn_duplicate_opal = False
 
-    st.write("#### Configure Each Plex (Horizontal)")
+    st.write("#### Configure Each Plex")
 
     for i in range(mp_nplex):
         st.markdown(f"**Plex #{i+1}**")
@@ -765,115 +678,111 @@ def multi_plex_flow(dispense_vol, dead_vol):
 
     if st.button("Compute Multi-Plex Table"):
         build_mp_table()
+        st.session_state.pop("mp_pot_names", None)
+        st.session_state.pop("mp_pot_named", None)
         st.success("Multi-Plex table built! Scroll down.")
 
-    mp_final = st.session_state.get("mp_final_rows", [])
-    if mp_final:
-        # pot-limit check (before splitting)
-        row_count = len(mp_final)
-        if row_count>29:
-            st.error(f"WARNING: You have {row_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
+    final = st.session_state.get("mp_final_rows", [])
+    if not final:
+        return
 
-        # check if any row > 5000
-        any_over_5000 = any(r["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"] for r in mp_final)
-        if not any_over_5000:
-            st.subheader("Multi-Plex Final Table (No Splitting Needed)")
-            df = pd.DataFrame(mp_final)
+    if "mp_pot_named" not in st.session_state:
+        st.subheader("Name Your Pots")
+        with st.form("pot_naming form"):
+            if "mp_pot_names" not in st.session_state:
+                st.session_state["mp_pot_names"] = {}
+                for r in final:
+                    st.session_state["mp_pot_names"][r["Reagent"]] = r["Reagent"]
 
-            df.reset_index(drop=True, inplace=True)
-            df.insert(0, "Pot", df.index + 1)
-            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
-            df.sort_values(by=["Type_Rank", "Pot"], inplace=True)
-            df.drop(columns="Type_Rank", inplace=True)
-
-            def mp_highlight(row):
-                vol_str = row["Total Volume (µL)"]
-                vol = float(vol_str) if vol_str else 0
-                if vol>6000:
-                    return ["background-color: #ffcccc"]*len(row)
-                elif vol>5000:
-                    return ["background-color: #ffffcc"]*len(row)
-                else:
-                    return [""]*len(row)
-            styled_df = df.style.apply(mp_highlight, axis=1)
-            st.write(styled_df.to_html(), unsafe_allow_html=True)
-        else:
-            st.subheader("Multi-Plex Table (Potential Splitting Needed)")
-            df = pd.DataFrame(mp_final)
-
-            df.reset_index(drop=True, inplace=True)
-            df.insert(0, "Pot", df.index + 1)
-            df["Type_Rank"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
-            df.sort_values(by=["Type_Rank", "Pot"], inplace=True)
-            df.drop(columns="Type_Rank", inplace=True)
-            
-            def mp_highlight(row):
-                vol_str = row["Total Volume (µL)"]
-                vol = float(vol_str) if vol_str else 0
-                if vol>6000:
-                    return ["background-color: #ffcccc"]*len(row)
-                elif vol>5000:
-                    return ["background-color: #ffffcc"]*len(row)
-                else:
-                    return [""]*len(row)
-            styled_df = df.style.apply(mp_highlight, axis=1)
-            st.write(styled_df.to_html(), unsafe_allow_html=True)
-
-            if st.button("Split Multi-Plex Rows >5000?"):
-                new_list = []
-                for row_ in mp_final:
-                    if row_["Warning"] in ["Consider splitting!","EXCEEDS 6000 µL limit!"]:
-                        splitted = split_row(row_, max_allowed=5000, dead_vol=dead_vol)
-                        new_list.extend(splitted)
-                    else:
-                        new_list.append(row_)
-                st.session_state["mp_final_rows"] = new_list
-                st.success("Splitting done for Multi-Plex. Updated table below.")
-
-                # pot-limit check (after splitting)
-                after_split_count = len(new_list)
-                if after_split_count>29:
-                    st.error(f"WARNING: You have {after_split_count} total pots (rows), exceeding the 29-pot Bond RX limit (after splitting)! Consider loading less slides or use another machine.")
-
-                df2 = pd.DataFrame(st.session_state["mp_final_rows"])
-                def mp_highlight2(row):
-                    vol_str = row["Total Volume (µL)"]
-                    vol = float(vol_str) if vol_str else 0
-                    if vol>6000:
-                        return ["background-color: #ffcccc"]*len(row)
-                    elif vol>5000:
-                        return ["background-color: #ffffcc"]*len(row)
-                    else:
-                        return [""]*len(row)
-                styled_df2 = df2.style.apply(mp_highlight2, axis=1)
-                st.write(styled_df2.to_html(), unsafe_allow_html=True)
-
-            if not df2.empty:
-                csv_bytes = df2.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="⬇️ Download as CSV",
-                    data=csv_bytes,
-                    file_name="final_table_v1.1.csv",
-                    mime="text/csv"
+            for r in final:
+                key = f"pot_name__{r['Reagent']}"
+                st.session_state["mp_pot_names"][r["Reagent"]] = st.text_input(
+                    label=f"{r['Reagent']}",
+                    value=st.session_state["mp_pot_names"][r["Reagent"]],
+                    key=key
                 )
 
-                import io
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    df2.to_excel(writer, index=False, sheet_name="Table")
-                excel_bytes = buffer.getvalue()
-                st.download_button(
-                    label="⬇️ Download as Excel",
-                    data=excel_bytes,
-                    file_name="final_table_v1.1.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            submit = st.form_submit_button("Use These Pot Names")
+            if submit:
+                st.session_state["mp_pot_named"] = True
+                st.success("Pot names saved! Scroll down to see your custom-named table.")
 
-                # 3) Print button
-                st.markdown(
-                    "<button onclick='window.print()' style='padding:8px; font-size:16px;'>🖨 Print Table</button>",
-                    unsafe_allow_html=True
-                )
+        return  # wait for user to name pots
+    df = pd.DataFrame(final).drop(columns=["__base_portion"], errors="ignore")
+    # insert Pot Name column from user inputs
+    pot_names = st.session_state["mp_pot_names"]
+    df.insert(0, "Pot Name", df["Reagent"].map(pot_names))
+
+    # grouping by Type as before
+    TYPE_ORDER = ["H2O2", "PB", "Primary", "Polymer", "TSA-DIG", "Opal", "DAPI", "Vectaplex", "Custom"]
+    type_rank = {t: i for i, t in enumerate(TYPE_ORDER)}
+    df["__rk"] = df["Type"].map(lambda x: type_rank.get(x, 9999))
+    df.sort_values(by=["__rk", "Pot Name"], inplace=True)
+    df.drop(columns="__rk", inplace=True)
+
+    # 4) Display the table with coloring
+    def highlight(r):
+        v = float(r["Total Volume (µL)"])
+        if v > 6000: return ["background-color:#ffcccc"] * len(r)
+        if v > 4000: return ["background-color:#ffffcc"] * len(r)
+        return [""] * len(r)
+
+    st.subheader("Multi-Plex Reagent Table")
+    st.write(df.style.apply(highlight, axis=1).to_html(), unsafe_allow_html=True)
+
+    # pot-limit check
+    if len(df) > 29:
+        st.error(f"WARNING: {len(df)} total pots exceed the 29-pot limit!")
+
+    # 5) Export & Print buttons
+    # CSV
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download CSV", csv_bytes, "multi_plex_v1.1.csv", "text/csv")
+
+    # Excel
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="MultiPlex")
+    st.download_button(
+        "⬇️ Download XLSX",
+        buf.getvalue(),
+        "multi_plex_v1.1.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # Print
+    st.markdown(
+        "<button onclick='window.print()' style='padding:8px;font-size:16px;'>🖨 Print Table</button>",
+        unsafe_allow_html=True
+    )
+
+    st.subheader("Plex Sequence Guide")
+
+    pot_names = st.session_state["mp_pot_names"]
+    guide_rows = []
+
+    for slide_idx, slide in enumerate(st.session_state["mp_slides"], start=1):
+        seq_parts = []
+        for plex_i, plex in enumerate(slide["plex_list"], start=1):
+            # Primary
+            pname = plex["primary_name"].strip() or f"(Prim {plex_i})"
+            seq_parts.append(pot_names.get(pname, pname))
+
+            # Polymer
+            poly_name = f"Polymer-{plex['polymer']}"
+            seq_parts.append(pot_names.get(poly_name, poly_name))
+
+            # Opal
+            op_name = f"Opal-{plex['opal']}"
+            seq_parts.append(pot_names.get(op_name, op_name))
+
+        guide_rows.append({
+            "Slide": slide_idx,
+            "Sequence": " → ".join(seq_parts)
+        })
+
+    guide_df = pd.DataFrame(guide_rows)
+    st.table(guide_df)
 
 
 ###############################################################################
