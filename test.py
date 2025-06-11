@@ -758,7 +758,6 @@ def multi_plex_flow(dispense_vol, dead_vol):
                 "Stock Volume (µL)": format_number(stock_vol),
                 "Diluent Volume (µL)": format_number(tot_volume - stock_vol),
                 "Warning": warn_label,
-                "__base_portion": sum_portions,  # used internally for splitting
             }
             final_rows.append(row_dict)
 
