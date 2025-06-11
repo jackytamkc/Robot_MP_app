@@ -1,5 +1,5 @@
 ### Robot_MP_app V1.1- updated 16/05/2025
-App link: https://robotmpapp-lyudlqgnn7kxj8wyd9wnb6.streamlit.app/
+App link: https://ramachandranlabbondrx.streamlit.app/
 
 App built for BondRX autostaining robot multiplex reagent prep list, simply create your list to prep your reagent easily by setting up the slides and reagents needed from here.
 
