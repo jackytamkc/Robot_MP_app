@@ -606,7 +606,7 @@ def plex_flow(dispense_vol: float, dead_vol: float):
 ###############################################################################
 
 def main():
-    st.title("BondRX Opal Reagent Prep Bot, Created by Jacky@Ramachandran Lab, V1.1")
+    st.title("BondRX Opal Reagent Prep Bot, Created by Jacky@Ramachandran Lab, V1.2")
 
     user = login_sidebar()
     if not user:
